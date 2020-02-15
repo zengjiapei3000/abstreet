@@ -88,6 +88,7 @@ pub fn write_binary<T: Serialize>(path: String, obj: &T) {
     println!("Wrote {}", path);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn maybe_read_binary<T: DeserializeOwned>(path: String, timer: &mut Timer) -> Result<T, Error> {
     if !path.ends_with(".bin") {
         panic!("read_binary needs {} to end with .bin", path);
@@ -96,6 +97,139 @@ pub fn maybe_read_binary<T: DeserializeOwned>(path: String, timer: &mut Timer) -
     timer.read_file(&path)?;
     let obj: T =
         bincode::deserialize_from(timer).map_err(|err| Error::new(ErrorKind::Other, err))?;
+    Ok(obj)
+}
+
+// TODO Some references:
+// https://github.com/unrust/uni-app/blob/master/src/web_fs.rs
+// https://github.com/koute/stdweb/issues/270
+// https://www.reddit.com/r/learnrust/comments/a34ru6/how_can_i_convert_a_callback_workflow_to_an/
+
+/*#[cfg(target_arch = "wasm32")]
+pub fn maybe_read_binary<T: DeserializeOwned>(
+    path: String,
+    _timer: &mut Timer,
+) -> Result<T, Error> {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    //use std::borrow::BorrowMut;
+
+    let url = format!("http://127.0.0.1:8000/{}", path.trim_start_matches("../"));
+
+    let result: Rc<RefCell<Result<Vec<u8>, String>>> =
+        Rc::new(RefCell::new(Err("nothing".to_string())));
+    /*let raw: Rc<RefCell<Option<Vec<u8>>>> = Rc::new(RefCell::new(None));
+    let error: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));*/
+
+    let on_get_buffer = {
+        let result = result.clone();
+
+        move |ab: stdweb::web::TypedArray<u8>| {
+            let data = ab.to_vec();
+            if data.len() > 0 {
+                *result.borrow_mut() = Ok(data);
+            }
+        }
+    };
+
+    let on_error = {
+        let result = result.clone();
+
+        move |s: String| {
+            *result.borrow_mut() = Err(s);
+        }
+    };
+
+    // TODO This doesn't actually seem to await either
+    stdweb::js! {
+        var oReq = new XMLHttpRequest();
+        var filename = @{url};
+        oReq.open("GET", filename, true);
+        oReq.responseType = "arraybuffer";
+
+        var on_error_js = function(s){
+            var on_error = @{on_error};
+            on_error(s);
+            on_error.drop();
+        };
+
+        oReq.onload = function (oEvent) {
+            var status = oReq.status;
+            var arrayBuffer = oReq.response; // Note: not oReq.responseText
+            if (status == 200 && arrayBuffer) {
+                var on_get_buffer = @{on_get_buffer};
+                on_get_buffer(new Uint8Array(arrayBuffer));
+                on_get_buffer.drop();
+            } else {
+                on_error_js("Fail to get array buffer from network..");
+            }
+        };
+
+        oReq.onerror = function(oEvent) {
+            on_error_js("Fail to read from network..");
+        };
+
+        oReq.send(null);
+    }
+
+    let raw: Vec<u8> = result.borrow().as_ref().unwrap().clone();
+    let obj: T = bincode::deserialize(&raw).map_err(|err| Error::new(ErrorKind::Other, err))?;
+    Ok(obj)
+}*/
+
+#[cfg(target_arch = "wasm32")]
+pub fn maybe_read_binary<T: DeserializeOwned>(
+    path: String,
+    _timer: &mut Timer,
+) -> Result<T, Error> {
+    use stdweb::web::IEventTarget;
+
+    // https://github.com/unrust/uni-app/blob/master/src/web_fs.rs as reference
+
+    let url = format!("http://127.0.0.1:8000/{}", path.trim_start_matches("../"));
+
+    let req = stdweb::web::XmlHttpRequest::new();
+    req.open("GET", &url).expect("open");
+    req.set_response_type(stdweb::web::XhrResponseType::ArrayBuffer)
+        .expect("set_response_type");
+    req.add_event_listener(|e: stdweb::web::event::ProgressLoadEvent| {
+        stdweb::console!(log, "got loaded event. continue?");
+    });
+    req.send().expect("send");
+
+    stdweb::console!(log, "poll on %s", url);
+
+    // TODO Poll!
+    for i in 0..9999 {
+        stdweb::console!(
+            log,
+            "ready state %s, status %s",
+            format!("{:?}", req.ready_state()),
+            req.status()
+        );
+        if req.ready_state() == stdweb::web::XhrReadyState::Done {
+            break;
+        }
+
+        /*async {
+            stdweb::web::wait(100)
+        }.await;*/
+    }
+
+    stdweb::console!(
+        log,
+        "finally: ready state %s, status %s",
+        format!("{:?}", req.ready_state()),
+        req.status()
+    );
+    let raw: stdweb::web::ArrayBuffer = req
+        .raw_response()
+        .into_reference()
+        .expect("into_reference")
+        .downcast()
+        .expect("downcast");
+    let bindat: Vec<u8> = raw.into();
+    let obj: T = bincode::deserialize(&bindat).map_err(|err| Error::new(ErrorKind::Other, err))?;
     Ok(obj)
 }
 

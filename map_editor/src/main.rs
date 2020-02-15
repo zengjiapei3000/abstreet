@@ -52,7 +52,9 @@ impl State {
 impl UI {
     fn new(ctx: &mut EventCtx) -> UI {
         let mut args = CmdArgs::new();
-        let load = args.optional_free();
+        //let load = args.optional_free();
+        // TODO tmp
+        let load = Some("../data/input/raw_maps/montlake.bin".to_string());
         let include_bldgs = args.enabled("--bldgs");
         let intersection_geom = args.enabled("--geom");
         let no_fixes = args.enabled("--nofixes");
