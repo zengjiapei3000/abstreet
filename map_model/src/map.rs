@@ -58,6 +58,7 @@ impl Map {
                 Err(err) => {
                     println!("\n\n{} is missing or corrupt. Check https://github.com/dabreegster/abstreet/blob/master/docs/dev.md and file an issue if you have trouble.", path);
                     println!("\n{}", err);
+                    panic!("bad map {}", err);
                     std::process::exit(1);
                 }
             }

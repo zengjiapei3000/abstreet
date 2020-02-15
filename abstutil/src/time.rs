@@ -151,7 +151,14 @@ impl<'a> Timer<'a> {
 
     // Workaround for borrow checker
     fn selfless_println(maybe_sink: &mut Option<Box<dyn TimerSink + 'a>>, line: String) {
-        println!("{}", line);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            println!("{}", line);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            stdweb::console!(log, "%s", &line);
+        }
         if let Some(ref mut sink) = maybe_sink {
             sink.println(line);
         }
@@ -312,7 +319,7 @@ impl<'a> Timer<'a> {
         F: Send + Clone + Copy,
     {
         // Here's the sequential equivalent, to conveniently compare times
-        if false {
+        if true {
             let mut results: Vec<O> = Vec::new();
             self.start_iter(timer_name, requests.len());
             for req in requests {

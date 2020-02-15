@@ -34,6 +34,8 @@ fn main() {
         draw_lane_markings: !args.enabled("--dont_draw_lane_markings"),
         num_agents: args.optional_parse("--num_agents", |s| s.parse()),
     };
+    // TODO tmp
+    flags.sim_flags.rng_seed = Some(42);
     let mut opts = options::Options::default();
     if args.enabled("--dev") {
         opts.dev = true;
@@ -54,7 +56,8 @@ fn main() {
     }
 
     let mut mode = sandbox::GameplayMode::Freeform;
-    if let Some(x) = args.optional("--challenge") {
+    if let Some(x) = Some("trafficsig/tut1") {
+        //args.optional("--challenge") {
         let mut aliases = Vec::new();
         'OUTER: for (_, stages) in challenges::all_challenges(true) {
             for challenge in stages {

@@ -12,6 +12,9 @@ use std::fs::File;
 use std::io::{stdout, BufReader, BufWriter, Error, ErrorKind, Read, Write};
 use std::path::Path;
 
+#[cfg(target_arch = "wasm32")]
+static SYSTEM_DATA: include_dir::Dir = include_dir::include_dir!("../data/system");
+
 pub fn to_json<T: Serialize>(obj: &T) -> String {
     serde_json::to_string_pretty(obj).unwrap()
 }
@@ -37,6 +40,22 @@ pub fn write_json<T: Serialize>(path: String, obj: &T) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+pub fn slurp_file(path: &str) -> Result<Vec<u8>, Error> {
+    let mut file = File::open(path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+    Ok(buffer)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn slurp_file(path: &str) -> Result<Vec<u8>, Error> {
+    if let Some(raw) = SYSTEM_DATA.get_file(path.trim_start_matches("../data/system/")) {
+        Ok(raw.contents().to_vec())
+    } else {
+        Err(Error::new(ErrorKind::Other, format!("dont have {}", path)))
+    }
+}
+
 pub fn maybe_read_json<T: DeserializeOwned>(path: String, timer: &mut Timer) -> Result<T, Error> {
     if !path.ends_with(".json") && !path.ends_with(".geojson") {
         panic!("read_json needs {} to end with .json or .geojson", path);
@@ -44,34 +63,11 @@ pub fn maybe_read_json<T: DeserializeOwned>(path: String, timer: &mut Timer) -> 
 
     timer.start(format!("parse {}", path));
     // TODO timer.read_file isn't working here. And we need to call stop() if there's no file.
-    match File::open(&path) {
-        Ok(mut file) => {
-            let mut contents = String::new();
-            file.read_to_string(&mut contents)?;
-            let obj: T = serde_json::from_str(&contents)?;
-            timer.stop(format!("parse {}", path));
-            Ok(obj)
-        }
-        Err(e) => {
-            timer.stop(format!("parse {}", path));
-            Err(e)
-        }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn maybe_read_json<T: DeserializeOwned>(path: String, _timer: &mut Timer) -> Result<T, Error> {
-    if !path.ends_with(".json") && !path.ends_with(".geojson") {
-        panic!("read_json needs {} to end with .json or .geojson", path);
-    }
-
-    if path == "../data/input/fixes/huge_seattle.json" {
-        let raw = include_str!("../../data/input/fixes/huge_seattle.json");
-        let obj: T = serde_json::from_str(&raw)?;
-        Ok(obj)
-    } else {
-        Err(Error::new(ErrorKind::Other, format!("dont have {}", path)))
-    }
+    let result: Result<T, Error> = slurp_file(&path).and_then(|raw| {
+        serde_json::from_slice(&raw).map_err(|err| Error::new(ErrorKind::Other, err))
+    });
+    timer.stop(format!("parse {}", path));
+    result
 }
 
 pub fn read_json<T: DeserializeOwned>(path: String, timer: &mut Timer) -> T {
@@ -126,12 +122,21 @@ pub fn maybe_read_binary<T: DeserializeOwned>(
     path: String,
     _timer: &mut Timer,
 ) -> Result<T, Error> {
-    if path == "../data/input/raw_maps/montlake.bin" {
-        let raw = include_bytes!("../../data/input/raw_maps/montlake.bin");
-        let obj: T = bincode::deserialize(raw).map_err(|err| Error::new(ErrorKind::Other, err))?;
+    if let Some(raw) = SYSTEM_DATA.get_file(path.trim_start_matches("../data/system/")) {
+        _timer.note(format!(
+            "loaded raw with len {}, deserializing",
+            raw.contents().len()
+        ));
+        let obj: T = bincode::deserialize(raw.contents())
+            .map_err(|err| Error::new(ErrorKind::Other, err))?;
+        _timer.note(format!("loaded raw cool!"));
         Ok(obj)
     } else {
-        Err(Error::new(ErrorKind::Other, format!("dont have {}", path)))
+        let mut err = format!("dont have {}. do have...\n", path);
+        for f in SYSTEM_DATA.files() {
+            err = format!("{}\n  - {}", err, f.path().display());
+        }
+        Err(Error::new(ErrorKind::Other, err))
     }
 }
 
@@ -322,6 +327,7 @@ pub fn deserialize_multimap<
 }
 
 // Just list all things from a directory, return sorted by name, with file extension removed.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn list_all_objects(dir: String) -> Vec<String> {
     let mut results: BTreeSet<String> = BTreeSet::new();
     match std::fs::read_dir(dir) {
@@ -347,8 +353,22 @@ pub fn list_all_objects(dir: String) -> Vec<String> {
     results.into_iter().collect()
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn list_all_objects(dir: String) -> Vec<String> {
+    let mut results = Vec::new();
+    if let Some(dir) = SYSTEM_DATA.get_dir(dir.trim_start_matches("../data/system/")) {
+        for f in dir.files() {
+            results.push(format!("../data/system/{}", f.path().display()));
+        }
+    } else {
+        panic!("Can't list_all_objects in {}", dir);
+    }
+    results
+}
+
 // Load all serialized things from a directory, return sorted by name, with file extension removed.
 // Detects JSON or binary.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_all_objects<T: DeserializeOwned>(dir: String) -> Vec<(String, T)> {
     let mut timer = Timer::new(format!("load_all_objects from {}", dir));
     let mut tree: BTreeMap<String, T> = BTreeMap::new();
@@ -382,6 +402,12 @@ pub fn load_all_objects<T: DeserializeOwned>(dir: String) -> Vec<(String, T)> {
         Err(e) => panic!(e),
     };
     tree.into_iter().collect()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_all_objects<T: DeserializeOwned>(dir: String) -> Vec<(String, T)> {
+    // TODO
+    Vec::new()
 }
 
 // TODO I'd like to get rid of this and just use Timer.read_file, but external libraries consume
