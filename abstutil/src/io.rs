@@ -36,6 +36,7 @@ pub fn write_json<T: Serialize>(path: String, obj: &T) {
     println!("Wrote {}", path);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn maybe_read_json<T: DeserializeOwned>(path: String, timer: &mut Timer) -> Result<T, Error> {
     if !path.ends_with(".json") && !path.ends_with(".geojson") {
         panic!("read_json needs {} to end with .json or .geojson", path);
@@ -55,6 +56,21 @@ pub fn maybe_read_json<T: DeserializeOwned>(path: String, timer: &mut Timer) -> 
             timer.stop(format!("parse {}", path));
             Err(e)
         }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn maybe_read_json<T: DeserializeOwned>(path: String, _timer: &mut Timer) -> Result<T, Error> {
+    if !path.ends_with(".json") && !path.ends_with(".geojson") {
+        panic!("read_json needs {} to end with .json or .geojson", path);
+    }
+
+    if path == "../data/input/fixes/huge_seattle.json" {
+        let raw = include_str!("../../data/input/fixes/huge_seattle.json");
+        let obj: T = serde_json::from_str(&raw)?;
+        Ok(obj)
+    } else {
+        Err(Error::new(ErrorKind::Other, format!("dont have {}", path)))
     }
 }
 
@@ -104,6 +120,20 @@ pub fn maybe_read_binary<T: DeserializeOwned>(path: String, timer: &mut Timer) -
 // https://github.com/unrust/uni-app/blob/master/src/web_fs.rs
 // https://github.com/koute/stdweb/issues/270
 // https://www.reddit.com/r/learnrust/comments/a34ru6/how_can_i_convert_a_callback_workflow_to_an/
+
+#[cfg(target_arch = "wasm32")]
+pub fn maybe_read_binary<T: DeserializeOwned>(
+    path: String,
+    _timer: &mut Timer,
+) -> Result<T, Error> {
+    if path == "../data/input/raw_maps/montlake.bin" {
+        let raw = include_bytes!("../../data/input/raw_maps/montlake.bin");
+        let obj: T = bincode::deserialize(raw).map_err(|err| Error::new(ErrorKind::Other, err))?;
+        Ok(obj)
+    } else {
+        Err(Error::new(ErrorKind::Other, format!("dont have {}", path)))
+    }
+}
 
 /*#[cfg(target_arch = "wasm32")]
 pub fn maybe_read_binary<T: DeserializeOwned>(
@@ -177,7 +207,7 @@ pub fn maybe_read_binary<T: DeserializeOwned>(
     Ok(obj)
 }*/
 
-#[cfg(target_arch = "wasm32")]
+/*#[cfg(target_arch = "wasm32")]
 pub fn maybe_read_binary<T: DeserializeOwned>(
     path: String,
     _timer: &mut Timer,
@@ -210,10 +240,6 @@ pub fn maybe_read_binary<T: DeserializeOwned>(
         if req.ready_state() == stdweb::web::XhrReadyState::Done {
             break;
         }
-
-        /*async {
-            stdweb::web::wait(100)
-        }.await;*/
     }
 
     stdweb::console!(
@@ -231,7 +257,7 @@ pub fn maybe_read_binary<T: DeserializeOwned>(
     let bindat: Vec<u8> = raw.into();
     let obj: T = bincode::deserialize(&bindat).map_err(|err| Error::new(ErrorKind::Other, err))?;
     Ok(obj)
-}
+}*/
 
 pub fn read_binary<T: DeserializeOwned>(path: String, timer: &mut Timer) -> T {
     match maybe_read_binary(path.clone(), timer) {

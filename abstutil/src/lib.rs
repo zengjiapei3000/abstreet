@@ -170,7 +170,3 @@ pub fn path_raw_map(map_name: &str) -> String {
 pub fn path_all_raw_maps() -> String {
     format!("../data/input/raw_maps")
 }
-
-#[cfg(target_arch = "wasm32")]
-#[macro_use]
-extern crate stdweb;
