@@ -11,7 +11,7 @@ use ezgui::{
 use geom::{Polygon, Pt2D, Triangle};
 
 pub struct PolygonDebugger {
-    composite: Composite,
+    composite: Composite<String>,
     noun: String,
     items: Vec<Item>,
     center: Option<Pt2D>,
@@ -203,7 +203,7 @@ impl State for PolygonDebugger {
     }
 }
 
-fn make_panel(ctx: &mut EventCtx) -> Composite {
+fn make_panel(ctx: &mut EventCtx) -> Composite<String> {
     Composite::new(
         Widget::col(vec![
             Widget::row(vec![

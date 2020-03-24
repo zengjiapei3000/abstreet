@@ -25,8 +25,8 @@ use std::collections::BTreeSet;
 pub struct TrafficSignalEditor {
     pub i: IntersectionID,
     current_phase: usize,
-    composite: Composite,
-    pub top_panel: Composite,
+    composite: Composite<String>,
+    pub top_panel: Composite<String>,
 
     groups: Vec<DrawTurnGroup>,
     group_selected: Option<TurnGroupID>,
@@ -293,7 +293,7 @@ impl State for TrafficSignalEditor {
     }
 }
 
-pub fn make_top_panel(ctx: &mut EventCtx, app: &App, can_undo: bool, can_redo: bool) -> Composite {
+pub fn make_top_panel(ctx: &mut EventCtx, app: &App, can_undo: bool, can_redo: bool) -> Composite<String> {
     let row = vec![
         Btn::text_fg("Finish").build_def(ctx, hotkey(Key::Escape)),
         Btn::text_fg("Preview").build_def(ctx, lctrl(Key::P)),
@@ -608,7 +608,7 @@ fn edit_phase(app: &App, i: IntersectionID, idx: usize) -> Box<dyn State> {
 
 fn check_for_missing_groups(
     mut signal: ControlTrafficSignal,
-    composite: &mut Composite,
+    composite: &mut Composite<String>,
     app: &mut App,
     ctx: &mut EventCtx,
 ) -> Transition {
@@ -693,7 +693,7 @@ fn make_previewer(i: IntersectionID, phase: usize, suspended_sim: Sim) -> Box<dy
 // TODO Show diagram, auto-sync the phase.
 // TODO Auto quit after things are gone?
 struct PreviewTrafficSignal {
-    composite: Composite,
+    composite: Composite<String>,
     speed: SpeedControls,
     time_panel: TimePanel,
 }

@@ -99,7 +99,7 @@ impl TurnCyclerState {
 
 struct ShowTrafficSignal {
     i: IntersectionID,
-    composite: Composite,
+    composite: Composite<String>,
     current_phase: usize,
 }
 
@@ -172,7 +172,7 @@ struct TurnExplorer {
     l: LaneID,
     // 0 means all turns, otherwise one particular turn
     idx: usize,
-    composite: Composite,
+    composite: Composite<String>,
 }
 
 impl State for TurnExplorer {
@@ -244,7 +244,7 @@ impl State for TurnExplorer {
 }
 
 impl TurnExplorer {
-    fn make_panel(ctx: &mut EventCtx, app: &App, l: LaneID, idx: usize) -> Composite {
+    fn make_panel(ctx: &mut EventCtx, app: &App, l: LaneID, idx: usize) -> Composite<String> {
         let num_turns = app.primary.map.get_turns_from_lane(l).len();
 
         let mut col = vec![Widget::row(vec![

@@ -307,7 +307,7 @@ fn challenge_controller(
 }
 
 struct FinalScore {
-    composite: Composite,
+    composite: Composite<String>,
     mode: GameplayMode,
     next: Option<GameplayMode>,
 }

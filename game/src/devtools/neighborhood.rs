@@ -68,7 +68,7 @@ impl State for NeighborhoodPicker {
 }
 
 struct NeighborhoodEditor {
-    composite: Composite,
+    composite: Composite<String>,
     neighborhood: NeighborhoodBuilder,
     mouseover_pt: Option<usize>,
     moving_pt: bool,

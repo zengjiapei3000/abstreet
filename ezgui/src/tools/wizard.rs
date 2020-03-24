@@ -7,9 +7,9 @@ use std::collections::VecDeque;
 
 pub struct Wizard {
     alive: bool,
-    tb_comp: Option<Composite>,
-    menu_comp: Option<Composite>,
-    ack: Option<Composite>,
+    tb_comp: Option<Composite<String>>,
+    menu_comp: Option<Composite<String>>,
+    ack: Option<Composite<String>>,
 
     // In the order of queries made
     confirmed_state: Vec<Box<dyn Cloneable>>,

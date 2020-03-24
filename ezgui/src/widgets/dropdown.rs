@@ -6,7 +6,7 @@ use geom::{Polygon, Pt2D};
 
 pub struct Dropdown<T: Clone> {
     current_idx: usize,
-    btn: Button,
+    btn: Button<String>,
     menu: Option<Menu<usize>>,
     label: String,
 
@@ -109,7 +109,7 @@ impl<T: 'static + Clone> WidgetImpl for Dropdown<T> {
     }
 }
 
-fn make_btn(ctx: &EventCtx, name: &str, label: &str) -> Button {
+fn make_btn(ctx: &EventCtx, name: &str, label: &str) -> Button<String> {
     Btn::text_fg(format!("{} ▼", name))
         .build(ctx, label, None)
         .take_btn()

@@ -211,7 +211,7 @@ pub fn make_signal_diagram(
     i: IntersectionID,
     selected: usize,
     edit_mode: bool,
-) -> Composite {
+) -> Composite<String> {
     // Slightly inaccurate -- the turn rendering may slightly exceed the intersection polygon --
     // but this is close enough.
     let bounds = app.primary.map.get_i(i).polygon.get_bounds();

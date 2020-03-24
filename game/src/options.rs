@@ -61,7 +61,7 @@ impl TrafficSignalStyle {
 }
 
 pub struct OptionsPanel {
-    composite: Composite,
+    composite: Composite<String>,
     traffic_signal_style: TrafficSignalStyle,
     color_scheme: Option<String>,
 }

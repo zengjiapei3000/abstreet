@@ -30,7 +30,7 @@ use std::collections::BTreeSet;
 
 pub struct EditMode {
     tool_panel: WrappedComposite,
-    composite: Composite,
+    composite: Composite<String>,
 
     // Retained state from the SandboxMode that spawned us
     mode: GameplayMode,
@@ -334,7 +334,7 @@ fn make_load_edits(btn: ScreenRectangle, mode: GameplayMode) -> Box<dyn State> {
     }))
 }
 
-fn make_topcenter(ctx: &mut EventCtx, app: &App) -> Composite {
+fn make_topcenter(ctx: &mut EventCtx, app: &App) -> Composite<String> {
     // TODO Support redo. Bit harder here to reset the redo_stack when the edits
     // change, because nested other places modify it too.
     Composite::new(

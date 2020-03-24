@@ -29,13 +29,13 @@ pub enum Overlays {
     BusNetwork(Colorer),
     Elevation(Colorer, Drawable),
     Edits(Colorer),
-    TripsHistogram(Time, Composite),
-    PopulationMap(Time, Option<HeatmapOptions>, Drawable, Composite),
+    TripsHistogram(Time, Composite<String>),
+    PopulationMap(Time, Option<HeatmapOptions>, Drawable, Composite<String>),
 
     // These aren't selectable from the main picker
-    IntersectionDemand(Time, IntersectionID, Drawable, Composite),
+    IntersectionDemand(Time, IntersectionID, Drawable, Composite<String>),
     BusRoute(Time, BusRouteID, ShowBusRoute),
-    BusDelaysOverTime(Time, BusRouteID, Composite),
+    BusDelaysOverTime(Time, BusRouteID, Composite<String>),
     BusPassengers(Time, BusRouteID, WrappedComposite),
 }
 
@@ -48,7 +48,7 @@ impl Overlays {
     }
 
     // Since Overlays is embedded in UI, we have to do this slight trick
-    pub fn update(ctx: &mut EventCtx, app: &mut App, minimap: &Composite) -> Option<Transition> {
+    pub fn update(ctx: &mut EventCtx, app: &mut App, minimap: &Composite<String>) -> Option<Transition> {
         let now = app.primary.sim.time();
         match app.overlay {
             Overlays::ParkingAvailability(t, _) => {
@@ -1049,7 +1049,7 @@ fn maybe_unzoom(ctx: &EventCtx, app: &mut App) -> Transition {
 }
 
 // This function sounds more ominous than it should.
-fn population_controls(ctx: &mut EventCtx, app: &App, opts: Option<&HeatmapOptions>) -> Composite {
+fn population_controls(ctx: &mut EventCtx, app: &App, opts: Option<&HeatmapOptions>) -> Composite<String> {
     let (total_ppl, ppl_in_bldg, ppl_off_map) = app.primary.sim.num_ppl();
 
     let mut col = vec![
@@ -1102,7 +1102,7 @@ fn population_controls(ctx: &mut EventCtx, app: &App, opts: Option<&HeatmapOptio
         .build(ctx)
 }
 
-fn heatmap_options(c: &mut Composite) -> Option<HeatmapOptions> {
+fn heatmap_options(c: &mut Composite<String>) -> Option<HeatmapOptions> {
     if c.is_checked("Show heatmap") {
         // Did we just change?
         if c.has_widget("resolution") {

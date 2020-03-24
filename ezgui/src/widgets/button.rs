@@ -4,8 +4,8 @@ use crate::{
 };
 use geom::Polygon;
 
-pub struct Button {
-    pub action: String,
+pub struct Button<O: Clone> {
+    pub action: O,
 
     // Both of these must have the same dimensions and are oriented with their top-left corner at
     // 0, 0. Transformation happens later.
@@ -23,13 +23,14 @@ pub struct Button {
     pub(crate) dims: ScreenDims,
 }
 
-impl Button {
+impl<O: 'static + Clone> Button<O> {
     fn new(
         ctx: &EventCtx,
         normal: GeomBatch,
         hovered: GeomBatch,
         hotkey: Option<MultiKey>,
         tooltip: &str,
+        action: O,
         maybe_tooltip: Option<Text>,
         hitbox: Polygon,
     ) -> Widget {
@@ -38,7 +39,7 @@ impl Button {
         let dims = ScreenDims::new(bounds.width(), bounds.height());
         assert!(!tooltip.is_empty());
         Widget::new(Box::new(Button {
-            action: tooltip.to_string(),
+            action,
 
             draw_normal: ctx.upload(normal),
             draw_hovered: ctx.upload(hovered),
@@ -59,7 +60,7 @@ impl Button {
     }
 }
 
-impl WidgetImpl for Button {
+impl<O: 'static + Clone> WidgetImpl for Button<O> {
     fn get_dims(&self) -> ScreenDims {
         self.dims
     }
@@ -81,13 +82,13 @@ impl WidgetImpl for Button {
         }
         if self.hovering && ctx.normal_left_click() {
             self.hovering = false;
-            return Some(Outcome::Clicked(self.action.clone()));
+            return Some(Outcome::Clicked("tmp".to_string()));
         }
 
         if let Some(ref hotkey) = self.hotkey {
             if ctx.input.new_was_pressed(hotkey) {
                 self.hovering = false;
-                return Some(Outcome::Clicked(self.action.clone()));
+                return Some(Outcome::Clicked("tmp".to_string()));
             }
         }
 
@@ -222,10 +223,12 @@ impl BtnBuilder {
         }
     }
 
-    pub fn build<I: Into<String>>(
+    // TODO Bad name
+    pub fn action_build<I: Into<String>, T: 'static + Clone>(
         self,
         ctx: &EventCtx,
         action_tooltip: I,
+        action: T,
         key: Option<MultiKey>,
     ) -> Widget {
         match self {
@@ -242,6 +245,7 @@ impl BtnBuilder {
                     hovered,
                     key,
                     &action_tooltip.into(),
+                    action,
                     maybe_t,
                     bounds.get_rectangle(),
                 )
@@ -272,6 +276,7 @@ impl BtnBuilder {
                     hovered,
                     key,
                     &action_tooltip.into(),
+                    action,
                     maybe_t,
                     geom,
                 )
@@ -307,6 +312,7 @@ impl BtnBuilder {
                     hovered,
                     key,
                     &action_tooltip.into(),
+                    action,
                     maybe_tooltip,
                     geom,
                 )
@@ -317,10 +323,22 @@ impl BtnBuilder {
                 hovered,
                 key,
                 &action_tooltip.into(),
+                action,
                 maybe_t,
                 hitbox,
             ),
         }
+    }
+
+    // String actions
+    pub fn build<I: Into<String>>(
+        self,
+        ctx: &EventCtx,
+        action_tooltip: I,
+        key: Option<MultiKey>,
+    ) -> Widget {
+        let action = action_tooltip.into();
+        self.action_build(ctx, action.clone(), action, key)
     }
 
     // Use the text as the action
@@ -339,7 +357,7 @@ impl BtnBuilder {
     pub fn inactive(mut self, ctx: &EventCtx) -> Widget {
         match self {
             BtnBuilder::TextFG(_, txt, _) => {
-                let btn = Btn::custom_text_fg(txt.change_fg(Color::grey(0.5)))
+                let btn: Button<String> = Btn::custom_text_fg(txt.change_fg(Color::grey(0.5)))
                     .build(ctx, "dummy", None)
                     .take_btn();
                 Widget::new(Box::new(JustDraw {
@@ -356,7 +374,7 @@ impl BtnBuilder {
             } => {
                 assert_eq!(*unselected_bg_color, Color::WHITE);
                 *unselected_bg_color = Color::grey(0.5);
-                let btn = self.build(ctx, "dummy", None).take_btn();
+                let btn: Button<String> = self.build(ctx, "dummy", None).take_btn();
                 Widget::new(Box::new(JustDraw {
                     draw: btn.draw_normal,
                     top_left: btn.top_left,

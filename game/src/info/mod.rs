@@ -27,7 +27,7 @@ pub struct InfoPanel {
     pub id: ID,
     tab: InfoTab,
     time: Time,
-    composite: Composite,
+    composite: Composite<String>,
 
     also_draw: Drawable,
     trip_details: Option<TripDetails>,

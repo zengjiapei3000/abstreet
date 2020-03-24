@@ -15,7 +15,7 @@ use sim::{DrivingGoal, IndividTrip, PersonSpec, Scenario, SidewalkPOI, SidewalkS
 use std::collections::BTreeSet;
 
 pub struct ScenarioManager {
-    composite: Composite,
+    composite: Composite<String>,
     common: CommonState,
     tool_panel: WrappedComposite,
     scenario: Scenario,
@@ -514,7 +514,7 @@ fn show_demand(
 }
 
 struct DotMap {
-    composite: Composite,
+    composite: Composite<String>,
 
     lines: Vec<Line>,
     draw: Option<(f64, Drawable)>,

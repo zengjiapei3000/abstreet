@@ -2,12 +2,12 @@ use crate::{Button, EventCtx, GfxCtx, Outcome, ScreenDims, ScreenPt, WidgetImpl}
 
 pub struct Checkbox {
     pub(crate) enabled: bool,
-    btn: Button,
-    other_btn: Button,
+    btn: Button<()>,
+    other_btn: Button<()>,
 }
 
 impl Checkbox {
-    pub fn new(enabled: bool, false_btn: Button, true_btn: Button) -> Checkbox {
+    pub fn new(enabled: bool, false_btn: Button<()>, true_btn: Button<()>) -> Checkbox {
         if enabled {
             Checkbox {
                 enabled,

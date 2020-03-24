@@ -20,7 +20,7 @@ use sim::{Sim, TripID};
 use std::collections::HashSet;
 
 pub struct DebugMode {
-    composite: Composite,
+    composite: Composite<String>,
     common: CommonState,
     tool_panel: WrappedComposite,
     objects: objects::ObjectDebugger,

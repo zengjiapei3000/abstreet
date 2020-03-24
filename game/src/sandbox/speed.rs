@@ -338,7 +338,7 @@ impl SpeedControls {
 
 // TODO Text entry would be great
 struct JumpToTime {
-    composite: Composite,
+    composite: Composite<String>,
     target: Time,
     maybe_mode: Option<GameplayMode>,
 }
@@ -488,7 +488,7 @@ pub struct TimeWarpScreen {
     target: Time,
     started: Instant,
     traffic_jams: bool,
-    composite: Composite,
+    composite: Composite<String>,
 }
 
 impl TimeWarpScreen {
@@ -591,7 +591,7 @@ impl State for TimeWarpScreen {
 
 pub struct TimePanel {
     time: Time,
-    pub composite: Composite,
+    pub composite: Composite<String>,
 }
 
 impl TimePanel {

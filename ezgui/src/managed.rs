@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use stretch::geometry::{Rect, Size};
 use stretch::node::{Node, Stretch};
 use stretch::number::Number;
+use std::marker::PhantomData;
 use stretch::style::{
     AlignItems, Dimension, FlexDirection, FlexWrap, JustifyContent, PositionType, Style,
 };
@@ -397,7 +398,7 @@ impl Widget {
     }
 
     pub(crate) fn get_all_click_actions(&self, actions: &mut HashSet<String>) {
-        if let Some(btn) = self.widget.downcast_ref::<Button>() {
+        if let Some(btn) = self.widget.downcast_ref::<Button<String>>() {
             if actions.contains(&btn.action) {
                 panic!(
                     "Two buttons in one Composite both use action {}",
@@ -414,7 +415,7 @@ impl Widget {
 
     pub fn is_btn(&self, name: &str) -> bool {
         self.widget
-            .downcast_ref::<Button>()
+            .downcast_ref::<Button<String>>()
             .map(|btn| btn.action == name)
             .unwrap_or(false)
     }
@@ -450,8 +451,8 @@ impl Widget {
         None
     }
 
-    pub(crate) fn take_btn(self) -> Button {
-        *self.widget.downcast::<Button>().ok().unwrap()
+    pub(crate) fn take_btn<O: 'static + Clone>(self) -> Button<O> {
+        *self.widget.downcast::<Button<O>>().ok().unwrap()
     }
 }
 
@@ -468,7 +469,7 @@ pub struct CompositeBuilder {
     dims: Dims,
 }
 
-pub struct Composite {
+pub struct Composite<O: Clone> {
     top_level: Widget,
 
     horiz: HorizontalAlignment,
@@ -480,6 +481,8 @@ pub struct Composite {
     contents_dims: ScreenDims,
     container_dims: ScreenDims,
     clip_rect: Option<ScreenRectangle>,
+
+    phantom: PhantomData<O>,
 }
 
 pub enum Outcome {
@@ -488,7 +491,8 @@ pub enum Outcome {
 
 const SCROLL_SPEED: f64 = 5.0;
 
-impl Composite {
+// No outcome type yet
+impl Composite<()> {
     pub fn new(top_level: Widget) -> CompositeBuilder {
         CompositeBuilder {
             top_level,
@@ -498,7 +502,9 @@ impl Composite {
             dims: Dims::MaxPercent(1.0, 1.0),
         }
     }
+}
 
+impl<O: 'static + Clone> Composite<O> {
     fn recompute_layout(&mut self, ctx: &EventCtx, recompute_bg: bool) {
         let mut stretch = Stretch::new();
         let root = stretch
@@ -759,7 +765,7 @@ impl Composite {
         self.top_level.rect.center()
     }
 
-    pub fn align_above(&mut self, ctx: &mut EventCtx, other: &Composite) {
+    pub fn align_above<X: Clone>(&mut self, ctx: &mut EventCtx, other: &Composite<X>) {
         // Small padding
         self.vert = VerticalAlignment::Above(other.top_level.rect.y1 - 5.0);
         self.recompute_layout(ctx, false);
@@ -777,7 +783,7 @@ impl Composite {
 }
 
 impl CompositeBuilder {
-    pub fn build(self, ctx: &mut EventCtx) -> Composite {
+    pub fn build<O: 'static + Clone>(self, ctx: &mut EventCtx) -> Composite<O> {
         let mut c = Composite {
             top_level: self.top_level,
 
@@ -790,6 +796,8 @@ impl CompositeBuilder {
             contents_dims: ScreenDims::new(0.0, 0.0),
             container_dims: ScreenDims::new(0.0, 0.0),
             clip_rect: None,
+
+            phantom: PhantomData,
         };
         if let Dims::ExactPercent(w, h) = c.dims {
             c.top_level.style.size = Some(Size {

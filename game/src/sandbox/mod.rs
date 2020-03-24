@@ -349,7 +349,7 @@ pub struct ScoreCard {
 
 pub struct AgentMeter {
     time: Time,
-    pub composite: Composite,
+    pub composite: Composite<String>,
     pub show_score: Option<ScoreCard>,
 }
 

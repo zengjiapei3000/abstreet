@@ -15,12 +15,12 @@ pub enum WrappedOutcome {
 }
 
 pub struct WrappedComposite {
-    pub inner: Composite,
+    pub inner: Composite<String>,
     callbacks: HashMap<String, Callback>,
 }
 
 impl WrappedComposite {
-    pub fn new(inner: Composite) -> WrappedComposite {
+    pub fn new(inner: Composite<String>) -> WrappedComposite {
         WrappedComposite {
             inner,
             callbacks: HashMap::new(),
@@ -64,7 +64,7 @@ impl WrappedComposite {
         title: I,
         info: Vec<String>,
         actions: Vec<(Option<MultiKey>, &str)>,
-    ) -> Composite {
+    ) -> Composite<String> {
         Composite::new(
             Widget::col(vec![
                 Widget::row(vec![

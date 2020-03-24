@@ -19,7 +19,7 @@ use std::collections::HashMap;
 // TODO For now, individual turns can't be manipulated. Banning turns could be useful, but I'm not
 // sure what to do about the player orphaning a section of the map.
 pub struct StopSignEditor {
-    composite: Composite,
+    composite: Composite<String>,
     id: IntersectionID,
     // (octagon, pole)
     geom: HashMap<RoadID, (Polygon, Polygon)>,

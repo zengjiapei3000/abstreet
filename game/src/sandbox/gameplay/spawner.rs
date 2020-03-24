@@ -30,7 +30,7 @@ const SMALL_DT: Duration = Duration::const_seconds(0.1);
 // starting positions for vehicles depends on randomized vehicle lengths...
 
 pub struct AgentSpawner {
-    composite: Composite,
+    composite: Composite<String>,
     from: Source,
     maybe_goal: Option<(Goal, Option<PolyLine>)>,
     colorer: Colorer,
@@ -532,7 +532,7 @@ fn schedule_trip(
 
 // New experiment, stop squeezing in all these options into one thing, specialize.
 pub struct SpawnManyAgents {
-    composite: Composite,
+    composite: Composite<String>,
     from: LaneID,
     maybe_goal: Option<(LaneID, Option<PolyLine>)>,
     schedule: Option<(usize, Duration)>,
@@ -702,7 +702,7 @@ fn create_swarm(app: &mut App, from: LaneID, to: LaneID, count: usize, duration:
     );
 }
 
-fn make_top_bar(ctx: &mut EventCtx, title: &str, howto: &str) -> Composite {
+fn make_top_bar(ctx: &mut EventCtx, title: &str, howto: &str) -> Composite<String> {
     Composite::new(
         Widget::col(vec![
             Widget::row(vec![

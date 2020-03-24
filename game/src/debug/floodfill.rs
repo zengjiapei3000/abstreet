@@ -8,7 +8,7 @@ use map_model::{connectivity, LaneID, Map, PathConstraints};
 use std::collections::HashSet;
 
 pub struct Floodfiller {
-    composite: Composite,
+    composite: Composite<String>,
     colorer: Colorer,
 }
 

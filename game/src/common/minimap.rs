@@ -13,7 +13,7 @@ use geom::{Circle, Distance, Polygon, Pt2D, Ring};
 // TODO Some of the math in here might assume map bound minimums start at (0, 0).
 pub struct Minimap {
     dragging: bool,
-    pub(crate) composite: Composite,
+    pub(crate) composite: Composite<String>,
     // Update panel when other things change
     zoomed: bool,
     overlay: bool,
@@ -240,7 +240,7 @@ impl Minimap {
     }
 }
 
-fn make_minimap_panel(ctx: &mut EventCtx, app: &App, zoom_lvl: usize) -> Composite {
+fn make_minimap_panel(ctx: &mut EventCtx, app: &App, zoom_lvl: usize) -> Composite<String> {
     if ctx.canvas.cam_zoom < MIN_ZOOM_FOR_DETAIL {
         return Composite::new(make_viz_panel(ctx, app))
             .aligned(

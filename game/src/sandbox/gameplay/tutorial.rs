@@ -23,10 +23,10 @@ use sim::{
 use std::collections::BTreeSet;
 
 pub struct Tutorial {
-    top_center: Composite,
+    top_center: Composite<String>,
     last_finished_task: Task,
 
-    msg_panel: Option<Composite>,
+    msg_panel: Option<Composite<String>>,
     warped: bool,
 }
 
@@ -885,7 +885,7 @@ impl TutorialState {
         }
     }
 
-    fn make_top_center(&self, ctx: &mut EventCtx, edit_map: bool) -> Composite {
+    fn make_top_center(&self, ctx: &mut EventCtx, edit_map: bool) -> Composite<String> {
         let mut col = vec![Widget::row(vec![
             Line("Tutorial").size(26).draw(ctx).margin(5),
             Widget::draw_batch(

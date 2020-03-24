@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 
 pub struct LaneEditor {
     l: LaneID,
-    composite: Composite,
+    composite: Composite<String>,
 }
 
 impl LaneEditor {
