@@ -63,12 +63,7 @@ impl Event {
                         ))
                     }
                 }
-                // This one only happens on Mac. The scrolling is way too fast, so slow it down.
-                // Probably the better way is to convert the LogicalPosition to a PhysicalPosition
-                // somehow knowing the DPI.
-                MouseScrollDelta::PixelDelta(pos) => {
-                    Some(Event::MouseWheelScroll(0.1 * pos.x, 0.1 * pos.y))
-                }
+                MouseScrollDelta::PixelDelta(pos) => Some(Event::MouseWheelScroll(pos.x, pos.y)),
             },
             WindowEvent::Resized(size) => {
                 Some(Event::WindowResized(size.width.into(), size.height.into()))
