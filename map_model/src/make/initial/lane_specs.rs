@@ -42,6 +42,23 @@ pub fn get_lane_specs_ltr(tags: &Tags, driving_side: DrivingSide) -> Vec<LaneSpe
     if tags.is_any("railway", vec!["light_rail", "rail"]) {
         return vec![fwd(LaneType::LightRail)];
     }
+    if tags.is(osm::HIGHWAY, "cycleway")
+        || (tags.is(osm::HIGHWAY, "footway") && tags.is("bicycle", "yes"))
+    {
+        let half_width = |mut spec: LaneSpec| {
+            spec.width = spec.width / 2.0;
+            spec
+        };
+        return assemble_ltr(
+            vec![half_width(fwd(LaneType::Biking))],
+            if tags.is("oneway", "yes") {
+                vec![]
+            } else {
+                vec![half_width(back(LaneType::Biking))]
+            },
+            driving_side,
+        );
+    }
     if tags.is(osm::HIGHWAY, "footway") {
         return vec![fwd(LaneType::Sidewalk)];
     }
@@ -415,6 +432,32 @@ mod tests {
                 DrivingSide::Left,
                 "sdd",
                 "^^^",
+            ),
+            (
+                "https://www.openstreetmap.org/way/663360444",
+                vec!["highway=cycleway", "foot=yes", "oneway=no", "segregated=no"],
+                DrivingSide::Right,
+                "bb",
+                "v^",
+            ),
+            (
+                "https://www.openstreetmap.org/way/835195089",
+                vec!["highway=cycleway", "oneway=yes"],
+                DrivingSide::Right,
+                "b",
+                "^",
+            ),
+            (
+                "https://www.openstreetmap.org/way/663360436",
+                vec![
+                    "highway=footway",
+                    "bicycle=yes",
+                    "oneway=no",
+                    "segregated=no",
+                ],
+                DrivingSide::Right,
+                "bb",
+                "v^",
             ),
         ] {
             let actual = get_lane_specs_ltr(&tags(input.clone()), driving_side);

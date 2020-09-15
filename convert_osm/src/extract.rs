@@ -105,10 +105,7 @@ pub fn extract_osm(map: &mut RawMap, opts: &Options, timer: &mut Timer) -> OsmEx
                 points: map.gps_bounds.convert_back(&way.pts),
                 attributes: way.tags.inner().clone(),
             });
-        } else if way
-            .tags
-            .is_any(osm::HIGHWAY, vec!["cycleway", "footway", "path"])
-        {
+        } else if way.tags.is_any(osm::HIGHWAY, vec!["footway", "path"]) {
             extra_footways.shapes.push(ExtraShape {
                 points: map.gps_bounds.convert_back(&way.pts),
                 attributes: way.tags.inner().clone(),
@@ -401,6 +398,8 @@ fn is_road(tags: &mut Tags, opts: &Options) -> bool {
     };
 
     if !vec![
+        "cycleway",
+        "footway",
         "living_street",
         "motorway",
         "motorway_link",
@@ -424,6 +423,11 @@ fn is_road(tags: &mut Tags, opts: &Options) -> bool {
     // Service roads can represent lots of things, most of which we don't want to keep yet. What's
     // allowed here is just based on what's been encountered so far in Seattle and Kraków.
     if highway == "service" && !tags.is_any("psv", vec!["yes", "bus"]) && !tags.is("bus", "yes") {
+        return false;
+    }
+
+    // Only footways that connect cycleways.
+    if highway == "footway" && !tags.is("bicycle", "yes") {
         return false;
     }
 
@@ -454,7 +458,7 @@ fn is_road(tags: &mut Tags, opts: &Options) -> bool {
         if tags.is_any(osm::HIGHWAY, vec!["motorway", "motorway_link"])
             || tags.is("junction", "roundabout")
             || tags.is("foot", "no")
-            || tags.is(osm::HIGHWAY, "service")
+            || tags.is_any(osm::HIGHWAY, vec!["cycleway", "service"])
         {
             tags.insert(osm::SIDEWALK, "none");
         } else if tags.is("oneway", "yes") {

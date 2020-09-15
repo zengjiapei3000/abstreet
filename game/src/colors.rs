@@ -71,6 +71,7 @@ pub struct ColorScheme {
     pub unzoomed_highway: Color,
     pub unzoomed_arterial: Color,
     pub unzoomed_residential: Color,
+    pub unzoomed_trail: Color,
 
     // Intersections
     pub normal_intersection: Color,
@@ -175,6 +176,7 @@ impl ColorScheme {
             unzoomed_highway: Color::rgb(232, 146, 162),
             unzoomed_arterial: Color::rgb(255, 199, 62),
             unzoomed_residential: Color::WHITE,
+            unzoomed_trail: Color::rgb(15, 125, 75),
 
             // Intersections
             normal_intersection: Color::grey(0.2),

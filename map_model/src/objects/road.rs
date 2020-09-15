@@ -326,6 +326,11 @@ impl Road {
         self.lanes_ltr().len() == 1 && self.lanes_ltr()[0].2 == LaneType::Sidewalk
     }
 
+    pub fn is_cyclepath(&self) -> bool {
+        let lanes = self.lanes_ltr();
+        lanes.len() == 2 && lanes[0].2 == LaneType::Biking && lanes[1].2 == LaneType::Biking
+    }
+
     pub fn common_endpt(&self, other: &Road) -> IntersectionID {
         if self.src_i == other.src_i || self.src_i == other.dst_i {
             self.src_i
