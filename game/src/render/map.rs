@@ -225,6 +225,8 @@ impl DrawMap {
                         cs.light_rail_track
                     } else if i.is_private(map) {
                         cs.private_road
+                    } else if i.is_cyclepath(map) {
+                        cs.unzoomed_trail
                     } else {
                         rank_to_color(cs, i.get_rank(map))
                     }

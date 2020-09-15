@@ -81,6 +81,10 @@ impl Intersection {
         self.roads.iter().all(|r| map.get_r(*r).is_private())
     }
 
+    pub fn is_cyclepath(&self, map: &Map) -> bool {
+        self.roads.iter().all(|r| map.get_r(*r).is_cyclepath())
+    }
+
     pub fn get_incoming_lanes<'a>(
         &'a self,
         map: &'a Map,
