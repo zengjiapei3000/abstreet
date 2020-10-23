@@ -474,27 +474,15 @@ fn group_bldgs(
     for group in partition_sidewalk_loops(app) {
         let block_id = blocks.len();
         let mut polygons = Vec::new();
-        let mut lanes = HashSet::new();
         for b in &group.bldgs {
             bldg_to_block.insert(*b, block_id);
-            let bldg = app.primary.map.get_b(*b);
-            if group.proper {
-                lanes.insert(bldg.sidewalk());
-            } else {
-                polygons.push(bldg.polygon.clone());
-            }
-        }
-        if group.proper {
-            // TODO Even better, glue the loop of sidewalks together and fill that area.
-            for l in lanes {
-                polygons.push(app.primary.draw_map.get_l(l).polygon.clone());
-            }
+            polygons.push(app.primary.map.get_b(*b).polygon.clone());
         }
         blocks.push(Block {
             id: block_id,
             bldgs: group.bldgs,
             borders: HashSet::new(),
-            shape: Polygon::convex_hull(polygons),
+            shape: Polygon::concave_hull(polygons, 0.1),
         });
     }
 
@@ -568,8 +556,6 @@ fn build_shape_for_border(
 
 struct Loop {
     bldgs: HashSet<BuildingID>,
-    // True if it's a "proper" block, false if it's a hack.
-    proper: bool,
     roads: HashSet<RoadID>,
 }
 
@@ -629,7 +615,6 @@ fn partition_sidewalk_loops(app: &App) -> Vec<Loop> {
         if ok {
             groups.push(Loop {
                 bldgs,
-                proper: true,
                 roads: sidewalks.into_iter().map(|l| map.get_l(l).parent).collect(),
             });
         } else {
@@ -683,7 +668,6 @@ fn partition_sidewalk_loops(app: &App) -> Vec<Loop> {
             .parent;
         groups.push(Loop {
             bldgs: bldgs.into_iter().collect(),
-            proper: false,
             roads: hashset! { r },
         });
     }
