@@ -480,9 +480,9 @@ fn group_bldgs(
         }
         blocks.push(Block {
             id: block_id,
+            shape: Polygon::concave_hull(polygons, 0.1, group.bldgs.contains(&BuildingID(1464))),
             bldgs: group.bldgs,
             borders: HashSet::new(),
-            shape: Polygon::concave_hull(polygons, 0.1),
         });
     }
 

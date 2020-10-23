@@ -301,8 +301,13 @@ impl Polygon {
         from_geo(mp.convex_hull())
     }
 
-    pub fn concave_hull(list: Vec<Polygon>, concavity: f64) -> Polygon {
+    pub fn concave_hull(list: Vec<Polygon>, concavity: f64, debug: bool) -> Polygon {
         let mp: geo::MultiPolygon<f64> = list.into_iter().map(|p| to_geo(p.points())).collect();
+
+        if debug {
+            println!("{}", abstutil::to_json(&mp));
+        }
+
         from_geo(mp.concave_hull(concavity))
     }
 
