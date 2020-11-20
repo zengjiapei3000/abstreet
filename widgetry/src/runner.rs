@@ -5,6 +5,7 @@ use image::{GenericImageView, Pixel};
 use instant::Instant;
 use winit::window::Icon;
 
+use abstutil::Timer;
 use geom::Duration;
 
 use crate::app_state::App;
@@ -197,7 +198,8 @@ pub fn run<
     settings: Settings,
     make_app: F,
 ) -> ! {
-    let (prerender_innards, event_loop) = crate::backend::setup(&settings.window_title);
+    let mut timer = Timer::new("setup widgetry");
+    let (prerender_innards, event_loop) = crate::backend::setup(&settings.window_title, &mut timer);
 
     if let Some(ref path) = settings.window_icon {
         if !cfg!(target_arch = "wasm32") {
@@ -226,6 +228,7 @@ pub fn run<
     let mut canvas = Canvas::new(initial_size);
     prerender.window_resized(initial_size);
 
+    timer.start("setup app");
     let (shared_app_state, states) = make_app(&mut EventCtx {
         fake_mouseover: true,
         input: UserInput::new(Event::NoOp, &canvas),
@@ -234,10 +237,12 @@ pub fn run<
         style: &mut style,
         updates_requested: vec![],
     });
+    timer.stop("setup app");
     let app = App {
         shared_app_state,
         states,
     };
+    timer.done();
 
     let mut state = State { canvas, app, style };
 

@@ -13,6 +13,8 @@
 		}
 
 		async function run() {
+			const t0 = performance.now();
+			console.log("Started loading WASM");
 			let response = await fetch('./game_bg.wasm');
 			const contentLength = response.headers.get('Content-Length');
 			const reader = response.body.getReader();
@@ -31,6 +33,8 @@
 			document.getElementById("progress_text").innerText = "Loaded " + prettyPrintBytes(contentLength) + ", now initializing WASM module";
 			let blob = new Blob(chunks);
 			let buffer = await blob.arrayBuffer();
+			const t1 = performance.now();
+			console.log(`It took ${t1 - t0} ms to download WASM, now initializing it`);
 			await init(buffer);
 		}
 
