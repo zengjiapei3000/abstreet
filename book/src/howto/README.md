@@ -9,10 +9,10 @@ hit problems.
 Grab a pre-built binary release -- updated every Sunday, announced at
 [r/abstreet](http://old.reddit.com/r/abstreet):
 
-- [Windows](https://github.com/dabreegster/abstreet/releases/download/v0.2.21/abstreet_windows_v0_2_21.zip)
+- [Windows](https://github.com/dabreegster/abstreet/releases/download/v0.2.24/abstreet_windows_v0_2_24.zip)
   - Unzip the folder, then run `play_abstreet.bat`. You'll probably getting a
     warning about running software from an unknown publisher.
-- [Mac](https://github.com/dabreegster/abstreet/releases/download/v0.2.21/abstreet_mac_v0_2_21.zip)
+- [Mac](https://github.com/dabreegster/abstreet/releases/download/v0.2.24/abstreet_mac_v0_2_24.zip)
   - Unzip the directory, then run `play_abstreet.sh`.
   - If you get an error about the developer unverified,
     [follow this](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac).
@@ -23,13 +23,13 @@ Grab a pre-built binary release -- updated every Sunday, announced at
     `cd game; RUST_BACKTRACE=1 ./game 1> ../output.txt 2>&1`
   - [Help needed](https://github.com/dabreegster/abstreet/issues/77) to package
     this as a Mac .app, to make this process simpler
-- [Linux](https://github.com/dabreegster/abstreet/releases/download/v0.2.21/abstreet_linux_v0_2_21.zip)
+- [Linux](https://github.com/dabreegster/abstreet/releases/download/v0.2.24/abstreet_linux_v0_2_24.zip)
   - Unzip the directory, then run `play_abstreet.sh`.
 - [FreeBSD](https://www.freshports.org/games/abstreet/), thanks to
   [Yuri](https://github.com/yurivict)
 
 Or you can try playing
-[directly in your web browser](http://abstreet.s3-website.us-east-2.amazonaws.com/dev)
+[directly in your web browser](http://abstreet.s3-website.us-east-2.amazonaws.com/dev/game)
 -- still experimental for now.
 
 Or you can [compile from source](../dev/index.md).
@@ -39,6 +39,15 @@ Or you can [compile from source](../dev/index.md).
 - Use the **tutorial** to learn the controls.
 - Play the **challenges** for directed gameplay.
 - Try out any ideas in the **sandbox**.
+
+## Common issues
+
+If the size of text and panels
+[seems very strange](https://github.com/dabreegster/abstreet/issues/381), you
+can try editing `play_abstreet.sh` or `play_abstreet.bat` and passing
+`--scale_factor=1` on the command line. This value is detected from your monitor
+settings, so if you have a Retina or other HiDPI display, things may be too big
+or small.
 
 ## Data source licensing
 
@@ -62,3 +71,7 @@ Other binary data bundled in:
 - Bungee fonts (<https://fonts.google.com/specimen/Bungee>, Open Font License)
 - Material Design icons (<https://material.io/resources/icons>, Apache license)
 - Some Graphics textures (<https://www.kenney.nl/>, CC0 1.0 Universal)
+- Snowflake SVG (<https://www.svgrepo.com/page/licensing>, CC0)
+- Music from
+  [various sources](https://github.com/dabreegster/abstreet/tree/master/data/system/assets/music/sources.md)
+  with Creative Commons licenses

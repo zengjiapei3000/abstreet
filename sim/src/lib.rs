@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use abstutil::{deserialize_usize, serialize_usize};
 use geom::{Distance, Speed, Time};
 use map_model::{
-    BuildingID, BusRouteID, BusStopID, DirectedRoadID, IntersectionID, LaneID, Map, ParkingLotID,
-    Path, PathConstraints, PathRequest, Position,
+    BuildingID, BusRouteID, BusStopID, IntersectionID, LaneID, Map, ParkingLotID, Path,
+    PathConstraints, Position,
 };
 
 pub use crate::render::{
@@ -34,9 +34,9 @@ pub(crate) use self::events::Event;
 pub use self::events::{AlertLocation, TripPhaseType};
 pub(crate) use self::make::TripSpec;
 pub use self::make::{
-    BorderSpawnOverTime, ExternalPerson, ExternalTrip, ExternalTripEndpoint, IndividTrip,
+    fork_rng, BorderSpawnOverTime, ExternalPerson, ExternalTrip, ExternalTripEndpoint, IndividTrip,
     PersonSpec, Scenario, ScenarioGenerator, ScenarioModifier, SimFlags, SpawnOverTime,
-    TripPurpose,
+    TripEndpoint, TripPurpose,
 };
 pub(crate) use self::mechanics::{
     DrivingSimState, IntersectionSimState, ParkingSim, ParkingSimState, WalkingSimState,
@@ -47,8 +47,8 @@ pub(crate) use self::router::{ActionAtEnd, Router};
 pub(crate) use self::scheduler::{Command, Scheduler};
 pub use self::sim::{AgentProperties, AlertHandler, DelayCause, Sim, SimCallback, SimOptions};
 pub(crate) use self::transit::TransitSimState;
+pub use self::trips::TripMode;
 pub use self::trips::{CommutersVehiclesCounts, Person, PersonState, TripInfo, TripResult};
-pub use self::trips::{TripEndpoint, TripMode};
 pub(crate) use self::trips::{TripLeg, TripManager};
 
 mod analytics;
@@ -352,8 +352,6 @@ pub struct ParkedCar {
     pub parked_since: Time,
 }
 
-/// It'd be nice to inline the goal_pos like SidewalkSpot does, but DrivingGoal is persisted in
-/// Scenarios, so this wouldn't survive map edits.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum DrivingGoal {
     ParkNear(BuildingID),
@@ -361,25 +359,17 @@ pub(crate) enum DrivingGoal {
 }
 
 impl DrivingGoal {
-    pub fn end_at_border(
-        dr: DirectedRoadID,
-        constraints: PathConstraints,
-        map: &Map,
-    ) -> Option<DrivingGoal> {
-        let lanes = dr.lanes(constraints, map);
-        if lanes.is_empty() {
-            None
-        } else {
-            // TODO ideally could use any
-            Some(DrivingGoal::Border(dr.dst_i(map), lanes[0]))
-        }
-    }
-
     pub fn goal_pos(&self, constraints: PathConstraints, map: &Map) -> Option<Position> {
         match self {
             DrivingGoal::ParkNear(b) => match constraints {
                 PathConstraints::Car => {
-                    Some(Position::start(map.find_driving_lane_near_building(*b)))
+                    let driving_lane = map.find_driving_lane_near_building(*b);
+                    let sidewalk_pos = map.get_b(*b).sidewalk_pos;
+                    if map.get_l(driving_lane).parent == map.get_l(sidewalk_pos.lane()).parent {
+                        Some(sidewalk_pos.equiv_pos(driving_lane, map))
+                    } else {
+                        Some(Position::start(driving_lane))
+                    }
                 }
                 PathConstraints::Bike => Some(map.get_b(*b).biking_connection(map)?.0),
                 PathConstraints::Bus | PathConstraints::Train | PathConstraints::Pedestrian => {
@@ -390,7 +380,7 @@ impl DrivingGoal {
         }
     }
 
-    pub(crate) fn make_router(&self, owner: CarID, path: Path, map: &Map) -> Router {
+    pub fn make_router(&self, owner: CarID, path: Path, map: &Map) -> Router {
         match self {
             DrivingGoal::ParkNear(b) => {
                 if owner.1 == VehicleType::Bike {
@@ -597,7 +587,6 @@ pub(crate) struct CreatePedestrian {
     pub start: SidewalkSpot,
     pub speed: Speed,
     pub goal: SidewalkSpot,
-    pub req: PathRequest,
     pub path: Path,
     pub trip: TripID,
     pub person: PersonID,
@@ -607,8 +596,6 @@ pub(crate) struct CreatePedestrian {
 pub(crate) struct CreateCar {
     pub vehicle: Vehicle,
     pub router: Router,
-    pub req: PathRequest,
-    pub start_dist: Distance,
     pub maybe_parked_car: Option<ParkedCar>,
     /// None for buses
     pub trip_and_person: Option<(TripID, PersonID)>,
@@ -618,17 +605,13 @@ pub(crate) struct CreateCar {
 impl CreateCar {
     pub fn for_appearing(
         vehicle: Vehicle,
-        start_pos: Position,
         router: Router,
-        req: PathRequest,
         trip: TripID,
         person: PersonID,
     ) -> CreateCar {
         CreateCar {
             vehicle,
             router,
-            req,
-            start_dist: start_pos.dist_along(),
             maybe_parked_car: None,
             trip_and_person: Some((trip, person)),
             maybe_route: None,
@@ -639,16 +622,12 @@ impl CreateCar {
     pub fn for_parked_car(
         parked_car: ParkedCar,
         router: Router,
-        req: PathRequest,
-        start_dist: Distance,
         trip: TripID,
         person: PersonID,
     ) -> CreateCar {
         CreateCar {
             vehicle: parked_car.vehicle.clone(),
             router,
-            req,
-            start_dist,
             maybe_parked_car: Some(parked_car),
             trip_and_person: Some((trip, person)),
             maybe_route: None,

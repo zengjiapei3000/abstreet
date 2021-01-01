@@ -272,7 +272,8 @@ impl Text {
         self.render(assets).get_dims()
     }
 
-    pub fn render<'a, A: AsRef<Assets>>(self, assets: &A) -> GeomBatch {
+    /// Render the text, without any autocropping. You can pass in an `EventCtx` or `GfxCtx`.
+    pub fn render<A: AsRef<Assets>>(self, assets: &A) -> GeomBatch {
         let assets: &Assets = assets.as_ref();
         self.inner_render(assets, svg::HIGH_QUALITY)
     }
@@ -328,8 +329,10 @@ impl Text {
         output_batch
     }
 
-    pub fn render_to_batch(self, prerender: &Prerender) -> GeomBatch {
-        let mut batch = self.render(&prerender.assets);
+    /// Render the text, autocropping blank space out of the result. You can pass in an `EventCtx`
+    /// or `GfxCtx`.
+    pub fn render_autocropped<A: AsRef<Assets>>(self, assets: &A) -> GeomBatch {
+        let mut batch = self.render(assets);
         batch.autocrop_dims = true;
         batch.autocrop()
     }

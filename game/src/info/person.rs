@@ -190,13 +190,11 @@ pub fn trips(
                 Widget::nothing()
             },
             {
-                let mut icon = GeomBatch::load_svg(
-                    ctx.prerender,
-                    "system/assets/widgetry/arrow_drop_down.svg",
-                )
-                .autocrop()
-                .color(RewriteColor::ChangeAll(Color::WHITE))
-                .scale(1.5);
+                let mut icon =
+                    GeomBatch::load_svg(ctx.prerender, "system/assets/tools/arrow_drop_down.svg")
+                        .autocrop()
+                        .color(RewriteColor::ChangeAll(Color::WHITE))
+                        .scale(1.5);
 
                 if !open_trips.contains_key(t) {
                     icon = icon.rotate(Angle::degrees(180.0));
@@ -492,7 +490,7 @@ pub fn parked_car(
                 )
             } else {
                 // TODO Blink
-                GeomBatch::load_svg(ctx.prerender, "system/assets/tools/location.svg")
+                GeomBatch::load_svg(ctx, "system/assets/tools/location.svg")
                     .color(RewriteColor::ChangeAll(Color::hex("#7FFA4D")))
                     .to_btn(ctx)
                     .build(ctx, "unfollow (pause the simulation)", Key::F)
@@ -612,7 +610,7 @@ fn header(
                 )
             } else {
                 // TODO Blink
-                GeomBatch::load_svg(ctx.prerender, "system/assets/tools/location.svg")
+                GeomBatch::load_svg(ctx, "system/assets/tools/location.svg")
                     .color(RewriteColor::ChangeAll(Color::hex("#7FFA4D")))
                     .to_btn(ctx)
                     .build(ctx, "unfollow (pause the simulation)", Key::F)

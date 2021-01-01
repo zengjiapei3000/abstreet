@@ -5,7 +5,8 @@ use geom::ArrowCap;
 use map_gui::options::OptionsPanel;
 use map_gui::render::{DrawOptions, BIG_ARROW_THICKNESS};
 use map_gui::tools::{
-    nice_map_name, open_browser, CityPicker, Navigator, PopupMsg, SimpleMinimap, TurnExplorer,
+    nice_map_name, open_browser, CityPicker, Minimap, MinimapControls, Navigator, PopupMsg,
+    TurnExplorer,
 };
 use map_gui::{SimpleApp, ID};
 use map_model::osm;
@@ -15,19 +16,20 @@ use widgetry::{
     VerticalAlignment, Widget,
 };
 
+type App = SimpleApp<()>;
+
 pub struct Viewer {
     top_panel: Panel,
     fixed_object_outline: Option<Drawable>,
-    minimap: SimpleMinimap,
+    minimap: Minimap<App, MinimapController>,
     businesses: Option<BusinessSearch>,
 }
 
 impl Viewer {
-    pub fn new(ctx: &mut EventCtx, app: &SimpleApp) -> Box<dyn State<SimpleApp>> {
-        let with_zorder = true;
+    pub fn new(ctx: &mut EventCtx, app: &App) -> Box<dyn State<App>> {
         let mut viewer = Viewer {
             fixed_object_outline: None,
-            minimap: SimpleMinimap::new(ctx, app, with_zorder),
+            minimap: Minimap::new(ctx, app, MinimapController),
             businesses: None,
             top_panel: Panel::empty(ctx),
         };
@@ -40,7 +42,7 @@ impl Viewer {
     fn recalculate_top_panel(
         &mut self,
         ctx: &mut EventCtx,
-        app: &SimpleApp,
+        app: &App,
         biz_search_panel: Option<Widget>,
     ) {
         let top_panel = Panel::new(Widget::col(vec![
@@ -75,7 +77,7 @@ impl Viewer {
         self.top_panel = top_panel;
     }
 
-    fn calculate_tags(&self, ctx: &EventCtx, app: &SimpleApp) -> Widget {
+    fn calculate_tags(&self, ctx: &EventCtx, app: &App) -> Widget {
         let mut col = Vec::new();
         if self.fixed_object_outline.is_some() {
             col.push("Click something else to examine it".draw_text(ctx));
@@ -217,8 +219,8 @@ impl Viewer {
     }
 }
 
-impl State<SimpleApp> for Viewer {
-    fn event(&mut self, ctx: &mut EventCtx, app: &mut SimpleApp) -> Transition<SimpleApp> {
+impl State<App> for Viewer {
+    fn event(&mut self, ctx: &mut EventCtx, app: &mut App) -> Transition<App> {
         ctx.canvas_movement();
         if ctx.redo_mouseover() {
             let old_id = app.current_selection.clone();
@@ -347,7 +349,7 @@ impl State<SimpleApp> for Viewer {
         DrawBaselayer::Custom
     }
 
-    fn draw(&self, g: &mut GfxCtx, app: &SimpleApp) {
+    fn draw(&self, g: &mut GfxCtx, app: &App) {
         if g.canvas.cam_zoom < app.opts.min_zoom_for_detail {
             app.draw_unzoomed(g);
         } else {
@@ -378,7 +380,7 @@ struct BusinessSearch {
 }
 
 impl BusinessSearch {
-    fn new(ctx: &mut EventCtx, app: &SimpleApp) -> BusinessSearch {
+    fn new(ctx: &mut EventCtx, app: &App) -> BusinessSearch {
         let mut counts = Counter::new();
         for b in app.map.all_buildings() {
             for a in &b.amenities {
@@ -400,7 +402,7 @@ impl BusinessSearch {
     }
 
     // Updates the highlighted buildings
-    fn update(&mut self, ctx: &mut EventCtx, app: &SimpleApp) {
+    fn update(&mut self, ctx: &mut EventCtx, app: &App) {
         let mut batch = GeomBatch::new();
         for b in app.map.all_buildings() {
             if b.amenities
@@ -413,12 +415,7 @@ impl BusinessSearch {
         self.highlight = ctx.upload(batch);
     }
 
-    fn hovering_on_amenity(
-        &mut self,
-        ctx: &mut EventCtx,
-        app: &SimpleApp,
-        amenity: Option<String>,
-    ) {
+    fn hovering_on_amenity(&mut self, ctx: &mut EventCtx, app: &App, amenity: Option<String>) {
         if amenity.is_none() {
             self.hovering_on_amenity = None;
             return;
@@ -461,5 +458,17 @@ impl BusinessSearch {
             ));
         }
         Widget::col(col)
+    }
+}
+
+struct MinimapController;
+
+impl MinimapControls<App> for MinimapController {
+    fn has_zorder(&self, _: &App) -> bool {
+        true
+    }
+
+    fn make_legend(&self, _: &mut EventCtx, _: &App) -> Widget {
+        Widget::nothing()
     }
 }

@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 use model::{Model, ID};
 
 use abstutil::{CmdArgs, Timer};
@@ -159,6 +162,9 @@ impl widgetry::State<App> for MainState {
                             }
                         } else if ctx.input.pressed(Key::X) {
                             app.model.clear_r_pts(r, ctx);
+                        } else if ctx.input.pressed(Key::M) {
+                            app.model.merge_r(r, ctx);
+                            app.model.world.handle_mouseover(ctx);
                         }
                     }
                     Some(ID::RoadPoint(r, idx)) => {
@@ -173,8 +179,7 @@ impl widgetry::State<App> for MainState {
                         match self.panel.event(ctx) {
                             Outcome::Clicked(x) => match x.as_ref() {
                                 "quit" => {
-                                    app.before_quit(ctx.canvas);
-                                    std::process::exit(0);
+                                    return Transition::Pop;
                                 }
                                 "export to OSM" => {
                                     // TODO Only do this for synthetic maps
@@ -257,7 +262,7 @@ impl widgetry::State<App> for MainState {
             if let Some(id) = app.model.world.get_selection() {
                 let txt = app.model.describe_obj(id);
                 // TODO We used to display actions and hotkeys here
-                self.popup = Some(ctx.upload(txt.render_to_batch(ctx.prerender)));
+                self.popup = Some(ctx.upload(txt.render_autocropped(ctx)));
             }
         }
 
@@ -331,7 +336,7 @@ fn preview_intersection(i: osm::NodeID, model: &Model, ctx: &EventCtx) -> Drawab
         batch.append(
             Text::from(Line(label))
                 .with_bg()
-                .render_to_batch(ctx.prerender)
+                .render_autocropped(ctx)
                 .scale(0.1)
                 .centered_on(center),
         );

@@ -8,7 +8,7 @@ use abstutil::{
 use geom::{Duration, Time};
 use map_model::{
     ControlStopSign, ControlTrafficSignal, Intersection, IntersectionID, LaneID, Map, PhaseType,
-    Traversable, TurnID, TurnPriority, TurnType,
+    Traversable, TurnID, TurnPriority, TurnType, UberTurn,
 };
 
 use crate::mechanics::car::Car;
@@ -52,6 +52,7 @@ pub(crate) struct IntersectionSimState {
 #[derive(Clone, Serialize, Deserialize)]
 struct State {
     id: IntersectionID,
+    // The in-progress turns which any potential new turns must not conflict with
     accepted: BTreeSet<Request>,
     // Track when a request is first made.
     #[serde(
@@ -69,8 +70,12 @@ struct State {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct SignalState {
+    // The current stage of the signal, zero based
     current_stage: usize,
+    // The time when the signal is checked for advancing
     stage_ends_at: Time,
+    // The count of time an adaptive signal has been extended during the current stage.
+    extensions_count: usize,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Debug)]
@@ -133,6 +138,8 @@ impl IntersectionSimState {
         }
         if self.break_turn_conflict_cycles {
             if let AgentID::Car(car) = agent {
+                // todo: when drain_filter() is no longer experimental, use it instead of
+                // retian_btreeset()
                 retain_btreeset(&mut self.blocked_by, |(_, c)| *c != car);
             }
         }
@@ -247,16 +254,24 @@ impl IntersectionSimState {
         map: &Map,
         scheduler: &mut Scheduler,
     ) {
+        // trivial function that advances the signal stage and returns duration
+        fn advance(signal_state: &mut SignalState, signal: &ControlTrafficSignal) -> Duration {
+            signal_state.current_stage = (signal_state.current_stage + 1) % signal.stages.len();
+            signal.stages[signal_state.current_stage]
+                .phase_type
+                .simple_duration()
+        }
+
         let state = self.state.get_mut(&id).unwrap();
         let signal_state = state.signal.as_mut().unwrap();
         let signal = map.get_traffic_signal(id);
-
+        let duration: Duration;
         // Switch to a new stage?
         assert_eq!(now, signal_state.stage_ends_at);
         let old_stage = &signal.stages[signal_state.current_stage];
         match old_stage.phase_type {
             PhaseType::Fixed(_) => {
-                signal_state.current_stage += 1;
+                duration = advance(signal_state, signal);
             }
             PhaseType::Adaptive(_) => {
                 // TODO Make a better policy here. For now, if there's _anyone_ waiting to start a
@@ -268,22 +283,60 @@ impl IntersectionSimState {
                 if state.waiting.keys().all(|req| {
                     old_stage.get_priority_of_turn(req.turn, signal) != TurnPriority::Protected
                 }) {
-                    signal_state.current_stage += 1;
+                    duration = advance(signal_state, signal);
                     self.events.push(Event::Alert(
                         AlertLocation::Intersection(id),
                         "Repeating an adaptive stage".to_string(),
                     ));
+                } else {
+                    duration = signal.stages[signal_state.current_stage]
+                        .phase_type
+                        .simple_duration();
+                }
+            }
+            PhaseType::Variable(min, delay, additional) => {
+                // test if anyone is waiting in current stage, and if so, extend the signal cycle.
+                // Filter out pedestrians, as they've had their chance and the delay
+                // could be short enough to keep them on the curb.
+                let delay = std::cmp::max(Duration::const_seconds(1.0), delay);
+                // Only extend for the fixed additional time
+                if signal_state.extensions_count as f64 * delay.inner_seconds()
+                    >= additional.inner_seconds()
+                {
+                    self.events.push(Event::Alert(
+                        AlertLocation::Intersection(id),
+                        format!(
+                            "exhausted a variable stage {},{},{},{}",
+                            min, delay, additional, signal_state.extensions_count
+                        ),
+                    ));
+                    duration = advance(signal_state, signal);
+                    signal_state.extensions_count = 0;
+                } else if state.waiting.keys().all(|req| {
+                    if let AgentID::Pedestrian(_) = req.agent {
+                        return true;
+                    }
+                    // Should we only allow protected to extend or any not banned?
+                    // currently only the protected demand control extended.
+                    old_stage.get_priority_of_turn(req.turn, signal) != TurnPriority::Protected
+                }) {
+                    signal_state.extensions_count = 0;
+                    duration = advance(signal_state, signal);
+                } else {
+                    signal_state.extensions_count += 1;
+                    duration = delay;
+                    self.events.push(Event::Alert(
+                        AlertLocation::Intersection(id),
+                        format!(
+                            "Extending a variable stage {},{},{},{}",
+                            min, delay, additional, signal_state.extensions_count
+                        ),
+                    ));
                 }
             }
         }
-        if signal_state.current_stage == signal.stages.len() {
-            signal_state.current_stage = 0;
-        }
 
-        signal_state.stage_ends_at = now
-            + signal.stages[signal_state.current_stage]
-                .phase_type
-                .simple_duration();
+        signal_state.stage_ends_at = now + duration;
         scheduler.push(signal_state.stage_ends_at, Command::UpdateIntersection(id));
         self.wakeup_waiting(now, id, scheduler, map);
     }
@@ -573,19 +626,7 @@ impl IntersectionSimState {
             .collect()
     }
 
-    pub fn get_blocked_by(&self, a: AgentID) -> HashSet<AgentID> {
-        let mut blocked_by = HashSet::new();
-        if let AgentID::Car(c) = a {
-            for (c1, c2) in &self.blocked_by {
-                if *c1 == c {
-                    blocked_by.insert(AgentID::Car(*c2));
-                }
-            }
-        }
-        blocked_by
-    }
-
-    /// returns intersections with travelers waiting for at least `threshold` since `now`, ordered
+    /// Returns intersections with travelers waiting for at least `threshold` since `now`, ordered
     /// so the longest delayed intersection is first.
     pub fn delayed_intersections(
         &self,
@@ -651,12 +692,15 @@ impl IntersectionSimState {
         queues: &HashMap<Traversable, Queue>,
     ) {
         // Don't use self.blocked_by -- that gets complicated with uber-turns and such.
+        //
+        // This also assumes default values for handle_uber_turns, disable_turn_conflicts, etc!
         for state in self.state.values() {
             for (req, started_at) in &state.waiting {
                 let turn = map.get_t(req.turn);
                 // In the absence of other explanations, the agent must be pausing at a stop sign
                 // or before making an unprotected movement, aka, in the middle of
-                // WAIT_AT_STOP_SIGN or WAIT_BEFORE_YIELD_AT_TRAFFIC_SIGNAL.
+                // WAIT_AT_STOP_SIGN or WAIT_BEFORE_YIELD_AT_TRAFFIC_SIGNAL. Or they're waiting for
+                // a signal to change.
                 let mut cause = DelayCause::Intersection(state.id);
                 if let Some(other) = state.accepted.iter().find(|other| {
                     turn.conflicts_with(map.get_t(other.turn)) || turn.id == other.turn
@@ -664,15 +708,35 @@ impl IntersectionSimState {
                     cause = DelayCause::Agent(other.agent);
                 } else if let AgentID::Car(car) = req.agent {
                     let queue = &queues[&Traversable::Lane(req.turn.dst)];
-                    if !queue.room_for_car(cars.get(&car).unwrap()) {
+                    let car = cars.get(&car).unwrap();
+                    if !queue.room_for_car(car) {
                         // TODO Or it's reserved due to an uber turn or something
                         let blocker = queue.cars.back().cloned().or(queue.laggy_head).unwrap();
                         cause = DelayCause::Agent(AgentID::Car(blocker));
+                    } else if let Some(ut) = car.router.get_path().about_to_start_ut() {
+                        if let Some(blocker) = self.check_for_conflicts_before_uber_turn(ut, map) {
+                            cause = DelayCause::Agent(blocker);
+                        }
                     }
                 }
                 graph.insert(req.agent, (now - *started_at, cause));
             }
         }
+    }
+
+    /// See if any agent is currently performing a turn that conflicts with an uber-turn. Doesn't
+    /// check for room on the queues.
+    fn check_for_conflicts_before_uber_turn(&self, ut: &UberTurn, map: &Map) -> Option<AgentID> {
+        for t in &ut.path {
+            let turn = map.get_t(*t);
+            let state = &self.state[&turn.id.parent];
+            for other in state.accepted.iter().chain(state.reserved.iter()) {
+                if map.get_t(other.turn).conflicts_with(turn) {
+                    return Some(other.agent);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -797,7 +861,11 @@ impl IntersectionSimState {
         let turn = map.get_t(req.turn);
         let mut cycle_detected = false;
         let mut ok = true;
-        for other in &self.state[&req.turn.parent].accepted {
+        for other in self.state[&req.turn.parent]
+            .accepted
+            .iter()
+            .chain(self.state[&req.turn.parent].reserved.iter())
+        {
             // Never short-circuit; always record all of the dependencies; it might help someone
             // else unstick things.
             if map.get_t(other.turn).conflicts_with(turn) {
@@ -831,15 +899,7 @@ impl IntersectionSimState {
                 }
             }
         }
-        if !ok {
-            return false;
-        }
-        for other in &self.state[&req.turn.parent].reserved {
-            if !self.disable_turn_conflicts && map.get_t(other.turn).conflicts_with(turn) {
-                return false;
-            }
-        }
-        true
+        ok
     }
 
     fn detect_conflict_cycle(
@@ -892,6 +952,7 @@ impl SignalState {
         let mut state = SignalState {
             current_stage: 0,
             stage_ends_at: now,
+            extensions_count: 0,
         };
 
         let signal = map.get_traffic_signal(id);

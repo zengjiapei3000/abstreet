@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use geom::{Angle, ArrowCap, Circle, Distance, Duration, Line, PolyLine, Pt2D};
-use map_model::{IntersectionID, Movement, Stage, TurnPriority, SIDEWALK_THICKNESS};
+use map_model::{IntersectionID, Movement, PhaseType, Stage, TurnPriority, SIDEWALK_THICKNESS};
 use widgetry::{Color, GeomBatch, Line, Prerender, RewriteColor, Text};
 
 use crate::options::TrafficSignalStyle;
@@ -36,14 +36,24 @@ pub fn draw_signal_stage(
             }
 
             let (yellow_light, percent) = if let Some(t) = time_left {
-                (
-                    t <= Duration::seconds(5.0),
-                    (t / stage.phase_type.simple_duration()) as f32,
-                )
+                if stage.phase_type.simple_duration() > Duration::ZERO {
+                    (
+                        t <= Duration::seconds(5.0),
+                        (t / stage.phase_type.simple_duration()) as f32,
+                    )
+                } else {
+                    (true, 1.0)
+                }
             } else {
                 (false, 1.0)
             };
-            let yellow = Color::YELLOW;
+            // The warning color for fixed is yellow, for anything else its orange to clue the
+            // user into it possibly extending.
+            let indicator_color = if let PhaseType::Fixed(_) = stage.phase_type {
+                Color::YELLOW
+            } else {
+                Color::ORANGE
+            };
             for m in &stage.protected_movements {
                 if !m.crosswalk {
                     // TODO Maybe less if shoulders meet
@@ -62,7 +72,7 @@ pub fn draw_signal_stage(
                     if let Ok(pl) = pl.maybe_exact_slice(slice_start, pl.length() - slice_end) {
                         batch.push(
                             if yellow_light {
-                                yellow
+                                indicator_color
                             } else {
                                 app.cs().signal_protected_turn.alpha(percent)
                             },
@@ -83,33 +93,37 @@ pub fn draw_signal_stage(
             for m in &stage.yield_movements {
                 assert!(!m.crosswalk);
                 let pl = &signal.movements[m].geom;
-                batch.extend(
-                    Color::BLACK,
-                    pl.exact_slice(
-                        SIDEWALK_THICKNESS - Distance::meters(0.1),
-                        pl.length() - SIDEWALK_THICKNESS + Distance::meters(0.1),
-                    )
-                    .dashed_arrow(
-                        BIG_ARROW_THICKNESS,
-                        Distance::meters(1.2),
-                        Distance::meters(0.3),
-                        ArrowCap::Triangle,
-                    ),
-                );
-                batch.extend(
-                    if yellow_light {
-                        yellow
-                    } else {
-                        app.cs().signal_protected_turn.alpha(percent)
-                    },
-                    pl.exact_slice(SIDEWALK_THICKNESS, pl.length() - SIDEWALK_THICKNESS)
-                        .dashed_arrow(
+                if let Ok(slice) = pl.maybe_exact_slice(
+                    SIDEWALK_THICKNESS - Distance::meters(0.1),
+                    pl.length() - SIDEWALK_THICKNESS + Distance::meters(0.1),
+                ) {
+                    batch.extend(
+                        Color::BLACK,
+                        slice.dashed_arrow(
+                            BIG_ARROW_THICKNESS,
+                            Distance::meters(1.2),
+                            Distance::meters(0.3),
+                            ArrowCap::Triangle,
+                        ),
+                    );
+                }
+                if let Ok(slice) =
+                    pl.maybe_exact_slice(SIDEWALK_THICKNESS, pl.length() - SIDEWALK_THICKNESS)
+                {
+                    batch.extend(
+                        if yellow_light {
+                            indicator_color
+                        } else {
+                            app.cs().signal_protected_turn.alpha(percent)
+                        },
+                        slice.dashed_arrow(
                             BIG_ARROW_THICKNESS / 2.0,
                             Distance::meters(1.0),
                             Distance::meters(0.5),
                             ArrowCap::Triangle,
                         ),
-                );
+                    );
+                }
             }
             draw_stage_number(app, prerender, i, idx, batch);
         }
@@ -195,7 +209,7 @@ pub fn draw_stage_number(
     );
     batch.append(
         Text::from(Line(format!("{}", idx + 1)))
-            .render_to_batch(prerender)
+            .render_autocropped(prerender)
             .scale(0.075)
             .centered_on(center),
     );
@@ -212,7 +226,12 @@ fn draw_time_left(
 ) {
     let radius = Distance::meters(2.0);
     let center = app.map().get_i(i).polygon.center();
-    let percent = time_left / stage.phase_type.simple_duration();
+    let duration = stage.phase_type.simple_duration();
+    let percent = if duration > Duration::ZERO {
+        time_left / duration
+    } else {
+        1.0
+    };
     batch.push(
         app.cs().signal_box,
         Circle::new(center, 1.2 * radius).to_polygon(),
@@ -227,7 +246,7 @@ fn draw_time_left(
     );
     batch.append(
         Text::from(Line(format!("{}", idx + 1)))
-            .render_to_batch(prerender)
+            .render_autocropped(prerender)
             .scale(0.1)
             .centered_on(center),
     );

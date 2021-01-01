@@ -20,6 +20,7 @@
 //! * [`ScatterPlot`] - visualize 2 variables with a scatter plot
 //! * [`Slider`] - horizontal and vertical sliders
 //! * [`Spinner`] - numeric input with up/down buttons
+//! * [`table::Table`] - rows and columns, supporting filtering and pagination
 //! * [`TexBox`] - single line text entry
 
 //#![warn(missing_docs)]
@@ -27,7 +28,7 @@
 #[macro_use]
 extern crate log;
 
-pub use crate::app_state::{DrawBaselayer, SharedAppState, State, Transition};
+pub use crate::app_state::{DrawBaselayer, SharedAppState, SimpleState, State, Transition};
 pub use crate::backend::Drawable;
 pub use crate::canvas::{Canvas, HorizontalAlignment, VerticalAlignment};
 pub use crate::color::{Color, Fill, LinearGradient, Texture};
@@ -41,6 +42,7 @@ pub use crate::screen_geom::{ScreenDims, ScreenPt, ScreenRectangle};
 pub use crate::style::Style;
 pub use crate::text::{Line, Text, TextExt, TextSpan};
 pub use crate::tools::warper::Warper;
+pub use crate::tools::Cached;
 pub use crate::widgets::autocomplete::Autocomplete;
 pub(crate) use crate::widgets::button::Button;
 pub use crate::widgets::button::{Btn, MultiButton};
@@ -57,6 +59,7 @@ pub use crate::widgets::persistent_split::PersistentSplit;
 pub use crate::widgets::scatter_plot::ScatterPlot;
 pub use crate::widgets::slider::Slider;
 pub use crate::widgets::spinner::Spinner;
+pub use crate::widgets::table;
 pub(crate) use crate::widgets::text_box::TextBox;
 pub use crate::widgets::{EdgeInsets, Outcome, Panel, Widget, WidgetImpl, WidgetOutput};
 

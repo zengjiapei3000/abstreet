@@ -8,11 +8,14 @@ importer.json
 
 data/input
 
+data/system/bellevue
 data/system/berlin
 data/system/krakow
 data/system/leeds
 data/system/london
+data/system/nyc
 data/system/paris
+data/system/salzburg
 data/system/seattle
 data/system/tel_aviv
 data/system/xian

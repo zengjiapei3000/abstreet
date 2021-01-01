@@ -137,23 +137,27 @@ fn main() {
 
     for name in names {
         if job.osm_to_raw {
-            match job.city.as_ref() {
-                "berlin" => berlin::osm_to_raw(&name, &mut timer, &config),
-                "leeds" => leeds::osm_to_raw(&name, &mut timer, &config),
-                "london" => london::osm_to_raw(&name, &mut timer, &config),
-                "seattle" => seattle::osm_to_raw(&name, &mut timer, &config),
-                x => {
-                    match abstutil::maybe_read_json::<generic::GenericCityImporter>(
-                        format!("importer/config/{}/cfg.json", x),
-                        &mut timer,
-                    ) {
-                        Ok(city_cfg) => {
-                            city_cfg.osm_to_raw(MapName::new(x, &name), &mut timer, &config);
-                        }
-                        Err(err) => {
-                            panic!("Can't import city {}: {}", x, err);
-                        }
+            // Still special-cased
+            if job.city == "seattle" {
+                seattle::osm_to_raw(&name, &mut timer, &config);
+            } else {
+                let raw = match abstutil::maybe_read_json::<generic::GenericCityImporter>(
+                    format!("importer/config/{}/cfg.json", job.city),
+                    &mut timer,
+                ) {
+                    Ok(city_cfg) => {
+                        city_cfg.osm_to_raw(MapName::new(&job.city, &name), &mut timer, &config)
                     }
+                    Err(err) => {
+                        panic!("Can't import city {}: {}", job.city, err);
+                    }
+                };
+
+                match job.city.as_ref() {
+                    "berlin" => berlin::import_extra_data(&raw, &config, &mut timer),
+                    "leeds" => leeds::import_extra_data(&raw, &config, &mut timer),
+                    "london" => london::import_extra_data(&raw, &config, &mut timer),
+                    _ => {}
                 }
             }
         }
@@ -204,6 +208,10 @@ fn main() {
                 seattle::adjust_private_parking(maybe_map.as_mut().unwrap(), &scenario);
                 timer.stop(format!("adjust parking for {}", name.describe()));
             }
+
+            timer.start("match parcels to buildings");
+            seattle::match_parcels_to_buildings(maybe_map.as_mut().unwrap(), &mut timer);
+            timer.stop("match parcels to buildings");
         }
     }
 

@@ -117,6 +117,8 @@ impl<'a> GfxCtx<'a> {
     pub fn unfork(&mut self) {
         self.uniforms = Uniforms::new(&self.canvas);
         self.num_forks += 1;
+
+        // println!("{:?}", backtrace::Backtrace::new());
     }
 
     pub fn clear(&mut self, color: Color) {
@@ -261,9 +263,10 @@ impl Prerender {
     }
 
     fn actually_upload(&self, permanent: bool, batch: GeomBatch) -> Drawable {
-        // println!("{:?}", backtrace::Backtrace::new());
         self.num_uploads.set(self.num_uploads.get() + 1);
         self.inner.actually_upload(permanent, batch)
+
+        // println!("{:?}", backtrace::Backtrace::new());
     }
 
     pub(crate) fn request_redraw(&self) {
@@ -292,5 +295,11 @@ impl std::convert::AsRef<Prerender> for GfxCtx<'_> {
 impl std::convert::AsRef<Prerender> for EventCtx<'_> {
     fn as_ref(&self) -> &Prerender {
         &self.prerender
+    }
+}
+
+impl std::convert::AsRef<Prerender> for Prerender {
+    fn as_ref(&self) -> &Prerender {
+        self
     }
 }

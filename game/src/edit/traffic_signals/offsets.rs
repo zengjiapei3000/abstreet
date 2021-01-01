@@ -7,11 +7,11 @@ use map_model::IntersectionID;
 use sim::Scenario;
 use widgetry::{
     Btn, Color, Drawable, EventCtx, GfxCtx, HorizontalAlignment, Key, Line, Panel, RewriteColor,
-    Spinner, State, Text, TextExt, VerticalAlignment, Widget,
+    SimpleState, Spinner, State, Text, TextExt, VerticalAlignment, Widget,
 };
 
 use crate::app::{App, Transition};
-use crate::common::{CommonState, SimpleState};
+use crate::common::CommonState;
 use crate::edit::traffic_signals::fade_irrelevant;
 
 pub struct ShowAbsolute {
@@ -36,7 +36,7 @@ impl ShowAbsolute {
                         .to_string(&app.opts.units),
                 ))
                 .bg(Color::PURPLE)
-                .render_to_batch(ctx.prerender)
+                .render_autocropped(ctx)
                 .color(RewriteColor::ChangeAlpha(0.8))
                 .scale(0.3)
                 .centered_on(app.primary.map.get_i(*i).polygon.center()),
@@ -64,7 +64,7 @@ impl ShowAbsolute {
     }
 }
 
-impl SimpleState for ShowAbsolute {
+impl SimpleState<App> for ShowAbsolute {
     fn on_click(&mut self, _: &mut EventCtx, _: &mut App, x: &str, _: &Panel) -> Transition {
         match x {
             "close" => {
@@ -124,7 +124,7 @@ impl ShowRelative {
                 batch.append(
                     Text::from(Line(offset.to_string(&app.opts.units)))
                         .bg(Color::PURPLE)
-                        .render_to_batch(ctx.prerender)
+                        .render_autocropped(ctx)
                         .color(RewriteColor::ChangeAlpha(0.8))
                         .scale(0.3)
                         .centered_on(app.primary.map.get_i(*i).polygon.center()),
@@ -154,7 +154,7 @@ impl ShowRelative {
     }
 }
 
-impl SimpleState for ShowRelative {
+impl SimpleState<App> for ShowRelative {
     fn on_click(&mut self, ctx: &mut EventCtx, app: &mut App, x: &str, _: &Panel) -> Transition {
         match x {
             "close" => Transition::Replace(ShowAbsolute::new(ctx, app, self.members.clone())),
@@ -267,7 +267,7 @@ impl TuneRelative {
     }
 }
 
-impl SimpleState for TuneRelative {
+impl SimpleState<App> for TuneRelative {
     fn on_click(
         &mut self,
         ctx: &mut EventCtx,

@@ -58,7 +58,7 @@ pub fn ongoing(
     let trip = app.primary.sim.trip_info(id);
 
     let col_width = Percent::int(7);
-    let props = app.primary.sim.agent_properties(agent);
+    let props = app.primary.sim.agent_properties(&app.primary.map, agent);
     let activity = agent.to_type().ongoing_verb();
     let time_so_far = app.primary.sim.time() - trip.departure;
 
@@ -529,11 +529,9 @@ fn make_timeline(
             // Show where we are in the trip currently
             if let Some(p) = progress_along_path {
                 batch.append(
-                    GeomBatch::load_svg(ctx.prerender, "system/assets/timeline/current_pos.svg")
-                        .centered_on(Pt2D::new(
-                            x1 + p * phase_width,
-                            icon_height + (rectangle_height / 2.0),
-                        )),
+                    GeomBatch::load_svg(ctx, "system/assets/timeline/current_pos.svg").centered_on(
+                        Pt2D::new(x1 + p * phase_width, icon_height + (rectangle_height / 2.0)),
+                    ),
                 );
             }
         }
@@ -565,7 +563,7 @@ fn make_timeline(
 // TODO Restore this, figuring out why some delays don't show up
 /*
     let mut sum_phase_dist = Distance::ZERO;
-    if let Some((_, step_list)) = &p.path {
+    if let Some(step_list) = &p.path {
         let mut norm_distance = Distance::meters(0.0);
         for step in step_list.get_steps() {
             match step {
@@ -666,7 +664,7 @@ fn make_trip_details(
             .insert(format!("jump to start of {}", trip_id), id);
 
         details.unzoomed.append(
-            GeomBatch::load_svg(ctx.prerender, "system/assets/timeline/start_pos.svg")
+            GeomBatch::load_svg(ctx, "system/assets/timeline/start_pos.svg")
                 .scale(3.0)
                 .color(RewriteColor::Change(Color::WHITE, Color::BLACK))
                 .color(RewriteColor::Change(
@@ -676,7 +674,7 @@ fn make_trip_details(
                 .centered_on(center),
         );
         details.zoomed.append(
-            GeomBatch::load_svg(ctx.prerender, "system/assets/timeline/start_pos.svg")
+            GeomBatch::load_svg(ctx, "system/assets/timeline/start_pos.svg")
                 .color(RewriteColor::Change(Color::WHITE, Color::BLACK))
                 .color(RewriteColor::Change(
                     Color::hex("#5B5B5B"),
@@ -700,7 +698,7 @@ fn make_trip_details(
             .insert(format!("jump to goal of {}", trip_id), id);
 
         details.unzoomed.append(
-            GeomBatch::load_svg(ctx.prerender, "system/assets/timeline/goal_pos.svg")
+            GeomBatch::load_svg(ctx, "system/assets/timeline/goal_pos.svg")
                 .scale(3.0)
                 .color(RewriteColor::Change(Color::WHITE, Color::BLACK))
                 .color(RewriteColor::Change(
@@ -710,7 +708,7 @@ fn make_trip_details(
                 .centered_on(center),
         );
         details.zoomed.append(
-            GeomBatch::load_svg(ctx.prerender, "system/assets/timeline/goal_pos.svg")
+            GeomBatch::load_svg(ctx, "system/assets/timeline/goal_pos.svg")
                 .color(RewriteColor::Change(Color::WHITE, Color::BLACK))
                 .color(RewriteColor::Change(
                     Color::hex("#5B5B5B"),
@@ -732,7 +730,7 @@ fn make_trip_details(
     let mut path_impossible = false;
     for (idx, p) in phases.into_iter().enumerate() {
         let color = color_for_trip_phase(app, p.phase_type).alpha(0.7);
-        if let Some((dist, ref path)) = p.path {
+        if let Some(path) = &p.path {
             if app.opts.dev
                 && (p.phase_type == TripPhaseType::Walking || p.phase_type == TripPhaseType::Biking)
             {
@@ -747,7 +745,7 @@ fn make_trip_details(
 
             // This is expensive, so cache please
             if idx == open_trip.cached_routes.len() {
-                if let Some(trace) = path.trace(map_for_pathfinding, dist, None) {
+                if let Some(trace) = path.trace(map_for_pathfinding) {
                     open_trip.cached_routes.push(Some((
                         trace.make_polygons(Distance::meters(10.0)),
                         trace.dashed_lines(

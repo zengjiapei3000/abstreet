@@ -98,7 +98,7 @@ impl MainMenu {
                 .align_left(),
             {
                 let mut txt = Text::from(Line("A/B STREET").display_title());
-                txt.add(Line("Created by Dustin Carlino and Yuwen Li"));
+                txt.add(Line("Created by Dustin Carlino, Yuwen Li, & Michael Kirk"));
                 txt.draw(ctx).centered_horiz()
             },
             Widget::row(vec![
@@ -168,8 +168,7 @@ impl State<App> for MainMenu {
         match self.panel.event(ctx) {
             Outcome::Clicked(x) => match x.as_ref() {
                 "quit" => {
-                    // TODO before_quit?
-                    std::process::exit(0);
+                    return Transition::Pop;
                 }
                 "Tutorial" => {
                     return Tutorial::start(ctx, app);
@@ -239,7 +238,7 @@ impl About {
             {
                 Text::from_multiline(vec![
                     Line("A/B STREET").display_title(),
-                    Line("Created by Dustin Carlino, UX by Yuwen Li"),
+                    Line("Created by Dustin Carlino, Yuwen Li, & Michael Kirk"),
                     Line("Character art by Holly Hansel"),
                     Line(""),
                     Line(

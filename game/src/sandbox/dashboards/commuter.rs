@@ -205,7 +205,7 @@ impl CommuterPatterns {
                     let b = app.primary.map.get_b(*b);
                     batch.push(Color::PURPLE, b.polygon.clone());
                     match b.bldg_type {
-                        BuildingType::Residential(_) => building_counts[0].1 += 1,
+                        BuildingType::Residential { .. } => building_counts[0].1 += 1,
                         BuildingType::ResidentialCommercial(_, _) => building_counts[1].1 += 1,
                         BuildingType::Commercial(_) => building_counts[2].1 += 1,
                         BuildingType::Empty => building_counts[3].1 += 1,
@@ -281,7 +281,7 @@ impl CommuterPatterns {
                             .unwrap_or(0);
                         let label_text = format!("{}", abstutil::prettyprint_usize(count));
                         let label = Text::from(Line(label_text).fg(Color::BLACK))
-                            .render_to_batch(ctx.prerender)
+                            .render_autocropped(ctx)
                             .scale(2.0)
                             .centered_on(compare_to_block.shape.polylabel());
 

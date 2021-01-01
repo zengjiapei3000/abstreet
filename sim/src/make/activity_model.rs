@@ -27,8 +27,8 @@ impl ScenarioGenerator {
         let mut num_bldg_mixed_residential_commercial = 0;
         for b in map.all_buildings() {
             match b.bldg_type {
-                BuildingType::Residential(resident_cap) => {
-                    for _ in 0..resident_cap {
+                BuildingType::Residential { num_residents, .. } => {
+                    for _ in 0..num_residents {
                         residents.push(b.id);
                     }
                     num_bldg_residential += 1;
@@ -69,7 +69,7 @@ impl ScenarioGenerator {
         let trip_saturation = 1.2;
         let num_trips = (trip_saturation * (residents_cap + workers_cap) as f64) as usize;
 
-        // bound probabilities to ensure we're getting some diveristy of agents
+        // bound probabilities to ensure we're getting some diversity of agents
         let lower_bound_prob = 0.05;
         let upper_bound_prob = 0.90;
         let prob_local_resident = if workers_cap == 0 {
@@ -225,7 +225,7 @@ fn create_prole(
                 *work_bldg,
                 PathConstraints::Pedestrian,
             )
-            .and_then(|req| map.pathfind(req))
+            .and_then(|req| map.pathfind(req).ok())
             {
                 path.total_length()
             } else {

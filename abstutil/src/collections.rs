@@ -50,6 +50,10 @@ where
         self.map.get(&key).unwrap_or(&self.empty)
     }
 
+    pub fn set(&mut self, key: K, values: BTreeSet<V>) {
+        self.map.insert(key, values);
+    }
+
     pub fn len(&self) -> usize {
         self.map.len()
     }
@@ -60,6 +64,15 @@ where
 
     pub fn consume(self) -> BTreeMap<K, BTreeSet<V>> {
         self.map
+    }
+}
+impl<K, V> std::default::Default for MultiMap<K, V>
+where
+    K: Ord + PartialEq + Clone,
+    V: Ord + PartialEq + Clone,
+{
+    fn default() -> MultiMap<K, V> {
+        MultiMap::new()
     }
 }
 
@@ -97,7 +110,7 @@ impl<T: Ord + PartialEq + Clone> Counter<T> {
         self.map.get(&val).cloned().unwrap_or(0)
     }
 
-    // Values with the same count are grouped together
+    /// Values with the same count are grouped together
     pub fn sorted_asc(&self) -> Vec<Vec<T>> {
         let mut list = self.map.iter().collect::<Vec<_>>();
         list.sort_by_key(|(_, cnt)| *cnt);
@@ -106,6 +119,18 @@ impl<T: Ord + PartialEq + Clone> Counter<T> {
             .into_iter()
             .map(|(_, group)| group.into_iter().map(|(val, _)| val.clone()).collect())
             .collect()
+    }
+
+    pub fn highest_n(&self, n: usize) -> Vec<(T, usize)> {
+        let mut list: Vec<(T, usize)> = self
+            .map
+            .iter()
+            .map(|(key, cnt)| (key.clone(), *cnt))
+            .collect();
+        list.sort_by_key(|(_, cnt)| *cnt);
+        list.reverse();
+        list.truncate(n);
+        list
     }
 
     pub fn max(&self) -> usize {

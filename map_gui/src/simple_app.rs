@@ -11,20 +11,29 @@ use crate::render::{DrawOptions, Renderable};
 use crate::{AppLike, ID};
 
 /// Simple app state that just renders a static map, without any dynamic agents on the map.
-pub struct SimpleApp {
+pub struct SimpleApp<T> {
     pub map: Map,
     pub draw_map: DrawMap,
     pub cs: ColorScheme,
     pub opts: Options,
     pub current_selection: Option<ID>,
+    /// Custom per-app state can be stored here
+    pub session: T,
+    /// If desired, this can be advanced to render traffic signals changing.
+    pub time: Time,
 }
 
-impl SimpleApp {
-    pub fn new(ctx: &mut EventCtx, args: CmdArgs) -> SimpleApp {
-        SimpleApp::new_with_opts(ctx, args, Options::default())
+impl<T> SimpleApp<T> {
+    pub fn new(ctx: &mut EventCtx, args: CmdArgs, session: T) -> SimpleApp<T> {
+        SimpleApp::new_with_opts(ctx, args, Options::default(), session)
     }
 
-    pub fn new_with_opts(ctx: &mut EventCtx, mut args: CmdArgs, mut opts: Options) -> SimpleApp {
+    pub fn new_with_opts(
+        ctx: &mut EventCtx,
+        mut args: CmdArgs,
+        mut opts: Options,
+        session: T,
+    ) -> SimpleApp<T> {
         ctx.loading_screen("load map", |ctx, mut timer| {
             opts.update_from_args(&mut args);
             let map_path = args
@@ -42,6 +51,8 @@ impl SimpleApp {
                 cs,
                 opts,
                 current_selection: None,
+                session,
+                time: Time::START_OF_DAY,
             }
         })
     }
@@ -189,7 +200,7 @@ impl SimpleApp {
     }
 }
 
-impl AppLike for SimpleApp {
+impl<T> AppLike for SimpleApp<T> {
     #[inline]
     fn map(&self) -> &Map {
         &self.map
@@ -244,27 +255,30 @@ impl AppLike for SimpleApp {
         pt: Pt2D,
         target_cam_zoom: Option<f64>,
         _: Option<ID>,
-    ) -> Box<dyn State<SimpleApp>> {
+    ) -> Box<dyn State<SimpleApp<T>>> {
         Box::new(SimpleWarper {
             warper: Warper::new(ctx, pt, target_cam_zoom),
         })
     }
 
     fn sim_time(&self) -> Time {
-        Time::START_OF_DAY
+        self.time
     }
 
     fn current_stage_and_remaining_time(&self, id: IntersectionID) -> (usize, Duration) {
-        (
-            0,
-            self.map.get_traffic_signal(id).stages[0]
-                .phase_type
-                .simple_duration(),
-        )
+        let signal = self.map.get_traffic_signal(id);
+        let mut time_left = (self.time - Time::START_OF_DAY) % signal.simple_cycle_duration();
+        for (idx, stage) in signal.stages.iter().enumerate() {
+            if time_left < stage.phase_type.simple_duration() {
+                return (idx, time_left);
+            }
+            time_left -= stage.phase_type.simple_duration();
+        }
+        unreachable!()
     }
 }
 
-impl SharedAppState for SimpleApp {
+impl<T> SharedAppState for SimpleApp<T> {
     fn draw_default(&self, g: &mut GfxCtx) {
         self.draw_with_opts(g, DrawOptions::new());
     }
@@ -282,8 +296,8 @@ struct SimpleWarper {
     warper: Warper,
 }
 
-impl State<SimpleApp> for SimpleWarper {
-    fn event(&mut self, ctx: &mut EventCtx, _: &mut SimpleApp) -> Transition<SimpleApp> {
+impl<T> State<SimpleApp<T>> for SimpleWarper {
+    fn event(&mut self, ctx: &mut EventCtx, _: &mut SimpleApp<T>) -> Transition<SimpleApp<T>> {
         if self.warper.event(ctx) {
             Transition::Keep
         } else {
@@ -291,41 +305,5 @@ impl State<SimpleApp> for SimpleWarper {
         }
     }
 
-    fn draw(&self, _: &mut GfxCtx, _: &SimpleApp) {}
-}
-
-/// Store a cached key/value pair, only recalculating when the key changes.
-pub struct Cached<K: PartialEq + Clone, V> {
-    contents: Option<(K, V)>,
-}
-
-impl<K: PartialEq + Clone, V> Cached<K, V> {
-    pub fn new() -> Cached<K, V> {
-        Cached { contents: None }
-    }
-
-    /// Get the current key.
-    pub fn key(&self) -> Option<K> {
-        self.contents.as_ref().map(|(k, _)| k.clone())
-    }
-
-    /// Get the current value.
-    pub fn value(&self) -> Option<&V> {
-        self.contents.as_ref().map(|(_, v)| v)
-    }
-
-    /// Update the value if the key has changed.
-    pub fn update<F: FnMut(K) -> V>(&mut self, key: Option<K>, mut produce_value: F) {
-        if let Some(new_key) = key {
-            if self.key() != Some(new_key.clone()) {
-                self.contents = Some((new_key.clone(), produce_value(new_key)));
-            }
-        } else {
-            self.contents = None;
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.contents = None;
-    }
+    fn draw(&self, _: &mut GfxCtx, _: &SimpleApp<T>) {}
 }

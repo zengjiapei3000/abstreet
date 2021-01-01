@@ -6,15 +6,16 @@ changes to a city affect the movement of drivers, cyclists, transit users, and
 pedestrians.
 
 - Play on
-  [Windows](https://github.com/dabreegster/abstreet/releases/download/v0.2.21/abstreet_windows_v0_2_21.zip),
-  [Mac](https://github.com/dabreegster/abstreet/releases/download/v0.2.21/abstreet_mac_v0_2_21.zip),
-  [Linux](https://github.com/dabreegster/abstreet/releases/download/v0.2.21/abstreet_linux_v0_2_21.zip),
+  [Windows](https://github.com/dabreegster/abstreet/releases/download/v0.2.24/abstreet_windows_v0_2_24.zip),
+  [Mac](https://github.com/dabreegster/abstreet/releases/download/v0.2.24/abstreet_mac_v0_2_24.zip),
+  [Linux](https://github.com/dabreegster/abstreet/releases/download/v0.2.24/abstreet_linux_v0_2_24.zip),
   [FreeBSD](https://www.freshports.org/games/abstreet/),
-  [your web browser](http://abstreet.s3-website.us-east-2.amazonaws.com/dev), or
+  [your web browser](http://abstreet.s3-website.us-east-2.amazonaws.com/dev/game), or
   [read all instructions](https://dabreegster.github.io/abstreet/howto/index.html)
   (new releases every Sunday)
 - [build from source](https://dabreegster.github.io/abstreet/dev/index.html)
   (new changes daily)
+- Try the Dec 2020 surprise: [15-minute Santa](https://dabreegster.github.io/abstreet/side_projects/santa.html)
 
 ## Show, don't tell
 
@@ -127,3 +128,4 @@ Data:
 - [King County GIS](https://www.kingcounty.gov/services/gis.aspx)
 - [Seattle Open Data](https://data.seattle.gov/)
 - [Puget Sound Regional Council](https://www.psrc.org/)
+- [IPUMS NHGIS, University of Minnesota](https://www.nhgis.org)

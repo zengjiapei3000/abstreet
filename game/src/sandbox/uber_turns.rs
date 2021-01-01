@@ -1,17 +1,18 @@
 use std::collections::BTreeSet;
 
-use geom::ArrowCap;
+use geom::{ArrowCap, Polygon};
 use map_gui::render::{DrawOptions, BIG_ARROW_THICKNESS};
 use map_gui::tools::PopupMsg;
 use map_gui::ID;
-use map_model::{IntersectionCluster, IntersectionID, PathConstraints};
+use map_model::{IntersectionCluster, IntersectionID, Map, PathConstraints, RoadID};
 use widgetry::{
     Btn, Checkbox, Color, DrawBaselayer, Drawable, EventCtx, GeomBatch, GfxCtx,
-    HorizontalAlignment, Key, Line, Panel, State, Text, TextExt, VerticalAlignment, Widget,
+    HorizontalAlignment, Key, Line, Panel, SimpleState, State, Text, TextExt, VerticalAlignment,
+    Widget,
 };
 
 use crate::app::{App, ShowEverything, Transition};
-use crate::common::{CommonState, SimpleState};
+use crate::common::CommonState;
 use crate::edit::ClusterTrafficSignalEditor;
 
 pub struct UberTurnPicker {
@@ -37,6 +38,7 @@ impl UberTurnPicker {
             Btn::text_fg("View uber-turns").build_def(ctx, Key::Enter),
             Btn::text_fg("Edit").build_def(ctx, Key::E),
             Btn::text_fg("Detect all clusters").build_def(ctx, Key::D),
+            Btn::text_fg("Preview merged intersection").build_def(ctx, Key::P),
         ]))
         .aligned(HorizontalAlignment::Center, VerticalAlignment::Top)
         .build(ctx);
@@ -44,7 +46,7 @@ impl UberTurnPicker {
     }
 }
 
-impl SimpleState for UberTurnPicker {
+impl SimpleState<App> for UberTurnPicker {
     fn on_click(&mut self, ctx: &mut EventCtx, app: &mut App, x: &str, _: &Panel) -> Transition {
         match x {
             "close" => Transition::Pop,
@@ -78,6 +80,13 @@ impl SimpleState for UberTurnPicker {
                     self.members.extend(ic.members);
                 }
                 Transition::Keep
+            }
+            "Preview merged intersection" => {
+                return Transition::Replace(MergeIntersections::new(
+                    ctx,
+                    app,
+                    self.members.clone(),
+                ));
             }
             _ => unreachable!(),
         }
@@ -205,7 +214,7 @@ impl UberTurnViewer {
     }
 }
 
-impl SimpleState for UberTurnViewer {
+impl SimpleState<App> for UberTurnViewer {
     fn on_click(&mut self, ctx: &mut EventCtx, app: &mut App, x: &str, _: &Panel) -> Transition {
         match x {
             "close" => Transition::Pop,
@@ -258,4 +267,70 @@ impl SimpleState for UberTurnViewer {
 
         g.redraw(&self.draw);
     }
+}
+
+struct MergeIntersections {
+    draw: Drawable,
+}
+
+impl MergeIntersections {
+    fn new(ctx: &mut EventCtx, app: &App, merge: BTreeSet<IntersectionID>) -> Box<dyn State<App>> {
+        let panel = Panel::new(Widget::row(vec![
+            Line("Merged intersections").small_heading().draw(ctx),
+            Btn::close(ctx),
+        ]))
+        .aligned(HorizontalAlignment::Center, VerticalAlignment::TopInset)
+        .build(ctx);
+
+        // Just take the concave hull of all the original intersection polygons and the interior
+        // roads
+        let map = &app.primary.map;
+        let mut polygons = Vec::new();
+        for r in find_interior_roads(map, &merge) {
+            polygons.push(map.get_r(r).get_thick_polygon(map));
+        }
+        for i in merge {
+            polygons.push(map.get_i(i).polygon.clone());
+        }
+        let merged = Polygon::concave_hull(polygons, 0.1);
+        let batch = GeomBatch::from(vec![(Color::RED.alpha(0.8), merged)]);
+
+        SimpleState::new(
+            panel,
+            Box::new(MergeIntersections {
+                draw: ctx.upload(batch),
+            }),
+        )
+    }
+}
+
+impl SimpleState<App> for MergeIntersections {
+    fn on_click(&mut self, _: &mut EventCtx, _: &mut App, x: &str, _: &Panel) -> Transition {
+        match x {
+            "close" => Transition::Pop,
+            _ => unreachable!(),
+        }
+    }
+
+    fn other_event(&mut self, ctx: &mut EventCtx, _: &mut App) -> Transition {
+        ctx.canvas_movement();
+        Transition::Keep
+    }
+
+    fn draw(&self, g: &mut GfxCtx, _: &App) {
+        g.redraw(&self.draw);
+    }
+}
+
+fn find_interior_roads(map: &Map, intersections: &BTreeSet<IntersectionID>) -> BTreeSet<RoadID> {
+    let mut roads = BTreeSet::new();
+    for i in intersections {
+        for r in &map.get_i(*i).roads {
+            let road = map.get_r(*r);
+            if intersections.contains(&road.src_i) && intersections.contains(&road.dst_i) {
+                roads.insert(road.id);
+            }
+        }
+    }
+    roads
 }

@@ -22,7 +22,7 @@ use crate::{
     ParkingSimState, ParkingSpot, Person, PersonID, Router, Scheduler, SidewalkPOI, SidewalkSpot,
     TrafficRecorder, TransitSimState, TripID, TripInfo, TripLeg, TripManager, TripPhaseType,
     TripSpec, Vehicle, VehicleSpec, VehicleType, WalkingSimState, BUS_LENGTH, LIGHT_RAIL_LENGTH,
-    MIN_CAR_LENGTH, SPAWN_DIST,
+    MIN_CAR_LENGTH,
 };
 
 mod queries;
@@ -108,6 +108,10 @@ pub struct SimOptions {
     /// If present, cancel any driving trips who will pass through a road currently experiencing
     /// delays beyond this threshold.
     pub cancel_drivers_delay_threshold: Option<Duration>,
+    /// Instead of cancelling trips due to `cancel_drivers_delay_threshold` or congestion capping,
+    /// delay the start of the trip by this amount, and try again. If conditions are still
+    /// problematic, repeat a fixed 3 times before cancelling.
+    pub delay_trips_instead_of_cancelling: Option<Duration>,
     /// Don't collect any analytics. Only useful for benchmarking and debugging gridlock more
     /// quickly.
     pub skip_analytics: bool,
@@ -148,6 +152,8 @@ impl SimOptions {
             disable_turn_conflicts: args.enabled("--disable_turn_conflicts"),
             cancel_drivers_delay_threshold: args
                 .optional_parse("--cancel_drivers_delay_threshold", Duration::parse),
+            delay_trips_instead_of_cancelling: args
+                .optional_parse("--delay_trips_instead_of_cancelling", Duration::parse),
             skip_analytics: args.enabled("--skip_analytics"),
         }
     }
@@ -183,6 +189,7 @@ impl SimOptions {
             infinite_parking: false,
             disable_turn_conflicts: false,
             cancel_drivers_delay_threshold: None,
+            delay_trips_instead_of_cancelling: None,
             skip_analytics: false,
         }
     }
@@ -266,12 +273,7 @@ impl Sim {
         self.parking.bldg_to_parked_cars(b)
     }
 
-    /// Also returns the start distance of the building. TODO Do that in the Path properly.
-    pub fn walking_path_to_nearest_parking_spot(
-        &self,
-        map: &Map,
-        b: BuildingID,
-    ) -> Option<(Path, Distance)> {
+    pub fn walking_path_to_nearest_parking_spot(&self, map: &Map, b: BuildingID) -> Option<Path> {
         let vehicle = Vehicle {
             id: CarID(0, VehicleType::Car),
             owner: None,
@@ -299,12 +301,12 @@ impl Sim {
 
         let start = SidewalkSpot::building(b, map).sidewalk_pos;
         let end = SidewalkSpot::parking_spot(spot, map, &self.parking).sidewalk_pos;
-        let path = map.pathfind(PathRequest {
+        map.pathfind(PathRequest {
             start,
             end,
             constraints: PathConstraints::Pedestrian,
-        })?;
-        Some((path, start.dist_along()))
+        })
+        .ok()
     }
 
     pub(crate) fn new_person(
@@ -332,7 +334,7 @@ impl Sim {
 
     fn start_bus(&mut self, route: &BusRoute, map: &Map) {
         // Spawn one bus for the first leg.
-        let (req, path) = self.transit.create_empty_route(route, map);
+        let path = self.transit.create_empty_route(route, map);
 
         // For now, no desire for randomness. Caller can pass in list of specs if that ever
         // changes.
@@ -347,26 +349,13 @@ impl Sim {
             max_speed: None,
         }
         .make(CarID(self.trips.new_car_id(), vehicle_type), None);
-        let start_lane = map.get_l(path.current_step().as_lane());
-        let start_dist = if map.get_i(start_lane.src_i).is_incoming_border() {
-            SPAWN_DIST
-        } else {
-            assert!(start_lane.length() > vehicle.length);
-            vehicle.length
-        };
 
         self.scheduler.push(
             self.time,
             Command::SpawnCar(
                 CreateCar {
-                    start_dist,
-                    router: Router::follow_bus_route(
-                        vehicle.id,
-                        path.clone(),
-                        req.end.dist_along(),
-                    ),
+                    router: Router::follow_bus_route(vehicle.id, path),
                     vehicle,
-                    req,
                     maybe_parked_car: None,
                     trip_and_person: None,
                     maybe_route: Some(route.id),
@@ -486,7 +475,7 @@ impl Sim {
                     let maybe_route = create_car.maybe_route;
                     let trip_and_person = create_car.trip_and_person;
                     let maybe_parked_car = create_car.maybe_parked_car.clone();
-                    let req = create_car.req.clone();
+                    let req = create_car.router.get_path().get_req().clone();
 
                     if let Some(create_car) = self
                         .driving
@@ -494,6 +483,12 @@ impl Sim {
                     {
                         // Starting the car failed for some reason.
                         if retry_if_no_room {
+                            self.driving.vehicle_waiting_to_spawn(
+                                id,
+                                req.start,
+                                trip_and_person.map(|(_, p)| p),
+                            );
+
                             // TODO Record this in the trip log
                             self.scheduler.push(
                                 self.time + BLIND_RETRY_TO_SPAWN,
@@ -554,7 +549,7 @@ impl Sim {
                 events.push(Event::TripPhaseStarting(
                     create_ped.trip,
                     create_ped.person,
-                    Some(create_ped.req.clone()),
+                    Some(create_ped.path.get_req().clone()),
                     TripPhaseType::Walking,
                 ));
                 self.analytics.record_demand(&create_ped.path, map);
@@ -820,10 +815,7 @@ impl Sim {
         abstutil::find_next_file(self.save_path(base_time))
     }
 
-    pub fn load_savestate(
-        path: String,
-        timer: &mut Timer,
-    ) -> Result<Sim, Box<dyn std::error::Error>> {
+    pub fn load_savestate(path: String, timer: &mut Timer) -> Result<Sim, String> {
         abstutil::maybe_read_binary(path, timer)
     }
 }

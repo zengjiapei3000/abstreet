@@ -23,7 +23,7 @@ impl GeomBatch {
         }
     }
 
-    // Adds a single polygon, painted according to `Fill`
+    /// Adds a single polygon, painted according to `Fill`
     pub fn push<F: Into<Fill>>(&mut self, fill: F, p: Polygon) {
         self.push_with_z(fill, p, 0.0);
     }
@@ -35,6 +35,11 @@ impl GeomBatch {
         debug_assert!(z_offset > -1.0);
         debug_assert!(z_offset <= 0.0);
         self.list.push((fill.into(), p, z_offset));
+    }
+
+    /// Adds a single polygon to the front of the batch, painted according to `Fill`
+    pub fn unshift<F: Into<Fill>>(&mut self, fill: F, p: Polygon) {
+        self.list.insert(0, (fill.into(), p, 0.0));
     }
 
     /// Applies one Fill to many polygons.
@@ -72,11 +77,14 @@ impl GeomBatch {
         DeferDraw::new(self)
     }
 
-    /// Turn this batch into a button.
+    /// Turn this batch into a button, with the hovered version rewriting all colors.
     pub fn to_btn(self, ctx: &EventCtx) -> BtnBuilder {
-        let hovered = self
-            .clone()
-            .color(RewriteColor::ChangeAll(ctx.style().hovering_color));
+        self.to_btn_custom(RewriteColor::ChangeAll(ctx.style().hovering_color))
+    }
+
+    /// Turn this batch into a button.
+    pub fn to_btn_custom(self, rewrite: RewriteColor) -> BtnBuilder {
+        let hovered = self.clone().color(rewrite);
         let hitbox = self.get_bounds().get_rectangle();
         Btn::custom(self, hovered, hitbox, None)
     }
@@ -115,7 +123,7 @@ impl GeomBatch {
     }
 
     /// True when the batch is empty.
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
 
@@ -139,8 +147,8 @@ impl GeomBatch {
     }
 
     /// Returns a batch containing an SVG from a file.
-    pub fn load_svg(prerender: &Prerender, filename: &str) -> GeomBatch {
-        svg::load_svg(prerender, filename).0
+    pub fn load_svg<P: AsRef<Prerender>>(prerender: &P, filename: &str) -> GeomBatch {
+        svg::load_svg(prerender.as_ref(), filename).0
     }
 
     /// Transforms all colors in a batch.
@@ -222,11 +230,19 @@ impl<F: Into<Fill>> From<Vec<(F, Polygon)>> for GeomBatch {
     }
 }
 
+/// A way to transform all colors in a GeomBatch.
 pub enum RewriteColor {
+    /// Don't do anything
     NoOp,
+    /// Change every instance of the first color to the second
     Change(Color, Color),
+    /// Change all colors to the specified value. For this to be interesting, the batch shouldn't
+    /// be a solid block of color.
     ChangeAll(Color),
+    /// Change the alpha value of all colors to this value.
     ChangeAlpha(f32),
+    /// Convert all colors to greyscale.
+    MakeGrayscale,
 }
 
 impl RewriteColor {
@@ -242,6 +258,10 @@ impl RewriteColor {
             }
             RewriteColor::ChangeAll(to) => *to,
             RewriteColor::ChangeAlpha(alpha) => c.alpha(*alpha),
+            RewriteColor::MakeGrayscale => {
+                let avg = (c.r + c.g + c.b) / 3.0;
+                Color::grey(avg).alpha(c.a)
+            }
         }
     }
 }

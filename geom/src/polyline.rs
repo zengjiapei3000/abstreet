@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 
+use geo::prelude::ClosestPoint;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -444,11 +445,13 @@ impl PolyLine {
         result
     }
 
+    /// The resulting polygon is manually triangulated and doesn't have a valid outer Ring.
     pub fn make_polygons(&self, width: Distance) -> Polygon {
         // TODO How to tune this?
         self.make_polygons_with_miter_threshold(width, MITER_THRESHOLD)
     }
 
+    /// The resulting polygon is manually triangulated and doesn't have a valid outer Ring.
     pub fn make_polygons_with_miter_threshold(
         &self,
         width: Distance,
@@ -516,13 +519,13 @@ impl PolyLine {
             .exact_dashed_polygons(width, dash_len, dash_separation)
     }
 
-    pub fn make_arrow(&self, thickness: Distance, cap: ArrowCap) -> Polygon {
+    /// Fail if the length is too short.
+    pub fn maybe_make_arrow(&self, thickness: Distance, cap: ArrowCap) -> Option<Polygon> {
         let head_size = thickness * 2.0;
         let triangle_height = head_size / 2.0_f64.sqrt();
 
         if self.length() < triangle_height + EPSILON_DIST {
-            // Just give up and make the thick line.
-            return self.make_polygons(thickness);
+            return None;
         }
         let slice = self.exact_slice(Distance::ZERO, self.length() - triangle_height);
 
@@ -547,7 +550,17 @@ impl PolyLine {
         pts.extend(side2);
         pts.push(pts[0]);
         pts.dedup();
-        Ring::must_new(pts).to_polygon()
+        Some(Ring::must_new(pts).to_polygon())
+    }
+
+    /// If the length is too short, just give up and make the thick line
+    pub fn make_arrow(&self, thickness: Distance, cap: ArrowCap) -> Polygon {
+        if let Some(p) = self.maybe_make_arrow(thickness, cap) {
+            p
+        } else {
+            // Just give up and make the thick line.
+            self.make_polygons(thickness)
+        }
     }
 
     pub fn make_double_arrow(&self, thickness: Distance, cap: ArrowCap) -> Polygon {
@@ -781,6 +794,16 @@ impl PolyLine {
         }
         geojson::Geometry::new(geojson::Value::LineString(pts))
     }
+
+    /// Returns the point on the polyline closest to the query.
+    pub fn project_pt(&self, query: Pt2D) -> Pt2D {
+        match pts_to_line_string(&self.pts).closest_point(&geo::Point::new(query.x(), query.y())) {
+            geo::Closest::Intersection(hit) | geo::Closest::SinglePoint(hit) => {
+                Pt2D::new(hit.x(), hit.y())
+            }
+            geo::Closest::Indeterminate => unreachable!(),
+        }
+    }
 }
 
 impl fmt::Display for PolyLine {
@@ -843,4 +866,12 @@ fn to_set(pts: &[Pt2D]) -> (HashSet<HashablePt2D>, HashSet<HashablePt2D>) {
         }
     }
     (deduped, dupes)
+}
+
+fn pts_to_line_string(raw_pts: &Vec<Pt2D>) -> geo::LineString<f64> {
+    let pts: Vec<geo::Point<f64>> = raw_pts
+        .iter()
+        .map(|pt| geo::Point::new(pt.x(), pt.y()))
+        .collect();
+    pts.into()
 }

@@ -173,6 +173,10 @@ pub fn make_change_traffic(
         ),
     );
     choices.push(Choice::new(
+        "generate from census data",
+        "census".to_string(),
+    ));
+    choices.push(Choice::new(
         "none, except for buses -- you manually spawn traffic",
         "none".to_string(),
     ));
@@ -314,11 +318,11 @@ impl State<App> for AgentSpawner {
                         self.panel.dropdown_value("mode"),
                         &app.primary.map,
                     )
-                    .and_then(|req| app.primary.map.pathfind(req))
+                    .and_then(|req| app.primary.map.pathfind(req).ok())
                     {
                         self.goal = Some((
                             to,
-                            path.trace(&app.primary.map, Distance::ZERO, None)
+                            path.trace(&app.primary.map)
                                 .map(|pl| pl.make_polygons(NORMAL_LANE_THICKNESS)),
                         ));
                     } else {
@@ -379,11 +383,11 @@ impl State<App> for AgentSpawner {
                         self.panel.dropdown_value("mode"),
                         &app.primary.map,
                     )
-                    .and_then(|req| app.primary.map.pathfind(req))
+                    .and_then(|req| app.primary.map.pathfind(req).ok())
                     {
                         self.goal = Some((
                             hovering,
-                            path.trace(&app.primary.map, Distance::ZERO, None)
+                            path.trace(&app.primary.map)
                                 .map(|pl| pl.make_polygons(NORMAL_LANE_THICKNESS)),
                         ));
                     } else {

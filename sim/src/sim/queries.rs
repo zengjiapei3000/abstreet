@@ -1,19 +1,21 @@
 //! All sorts of read-only queries about a simulation
 
-use std::collections::{BTreeMap, HashSet};
+use serde::Serialize;
+use std::collections::BTreeMap;
 
 use abstutil::Counter;
 use geom::{Distance, Duration, PolyLine, Pt2D, Time};
 use map_model::{
-    BuildingID, BusRouteID, BusStopID, IntersectionID, Lane, LaneID, Map, Path, Position,
-    Traversable, TurnID,
+    BuildingID, BusRouteID, BusStopID, IntersectionID, Lane, LaneID, Map, Path, PathConstraints,
+    Position, Traversable, TurnID,
 };
 
 use crate::analytics::Window;
 use crate::{
     AgentID, AgentType, Analytics, CarID, CommutersVehiclesCounts, DrawCarInput, DrawPedCrowdInput,
     DrawPedestrianInput, OrigPersonID, PandemicModel, ParkedCar, ParkingSim, PedestrianID, Person,
-    PersonID, PersonState, Scenario, Sim, TripID, TripInfo, TripResult, UnzoomedAgent, VehicleType,
+    PersonID, PersonState, Scenario, Sim, TripEndpoint, TripID, TripInfo, TripMode, TripResult,
+    UnzoomedAgent, VehicleType,
 };
 
 // TODO Many of these just delegate to an inner piece. This is unorganized and hard to maintain.
@@ -65,9 +67,9 @@ impl Sim {
     }
 
     /// Only call for active agents, will panic otherwise
-    pub fn agent_properties(&self, id: AgentID) -> AgentProperties {
+    pub fn agent_properties(&self, map: &Map, id: AgentID) -> AgentProperties {
         match id {
-            AgentID::Pedestrian(id) => self.walking.agent_properties(id, self.time),
+            AgentID::Pedestrian(id) => self.walking.agent_properties(map, id, self.time),
             AgentID::Car(id) => self.driving.agent_properties(id, self.time),
             // TODO Harder to measure some of this stuff
             AgentID::BusPassenger(_, _) => AgentProperties {
@@ -122,13 +124,14 @@ impl Sim {
         self.trips.trip_blocked_time(id)
     }
 
-    pub fn trip_to_person(&self, id: TripID) -> PersonID {
+    pub fn trip_to_person(&self, id: TripID) -> Option<PersonID> {
         self.trips.trip_to_person(id)
     }
     // TODO This returns None for parked cars owned by people! That's confusing. Dedupe with
     // get_owner_of_car.
     pub fn agent_to_person(&self, id: AgentID) -> Option<PersonID> {
-        self.agent_to_trip(id).map(|t| self.trip_to_person(t))
+        self.agent_to_trip(id)
+            .map(|t| self.trip_to_person(t).unwrap())
     }
     pub fn person_to_agent(&self, id: PersonID) -> Option<AgentID> {
         if let PersonState::Trip(t) = self.trips.get_person(id)?.state {
@@ -212,15 +215,10 @@ impl Sim {
         self.driving.get_all_driving_paths()
     }
 
-    pub fn trace_route(
-        &self,
-        id: AgentID,
-        map: &Map,
-        dist_ahead: Option<Distance>,
-    ) -> Option<PolyLine> {
+    pub fn trace_route(&self, id: AgentID, map: &Map) -> Option<PolyLine> {
         match id {
-            AgentID::Car(car) => self.driving.trace_route(self.time, car, map, dist_ahead),
-            AgentID::Pedestrian(ped) => self.walking.trace_route(self.time, ped, map, dist_ahead),
+            AgentID::Car(car) => self.driving.trace_route(self.time, car, map),
+            AgentID::Pedestrian(ped) => self.walking.trace_route(self.time, ped, map),
             AgentID::BusPassenger(_, _) => None,
         }
     }
@@ -262,9 +260,6 @@ impl Sim {
     pub fn get_waiting_agents(&self, id: IntersectionID) -> Vec<(AgentID, TurnID, Time)> {
         self.intersections.get_waiting_agents(id)
     }
-    pub fn get_blocked_by(&self, a: AgentID) -> HashSet<AgentID> {
-        self.intersections.get_blocked_by(a)
-    }
 
     /// For every agent that's currently not moving, figure out how long they've been waiting and
     /// why they're blocked.
@@ -294,11 +289,6 @@ impl Sim {
 
     pub fn get_analytics(&self) -> &Analytics {
         &self.analytics
-    }
-
-    pub fn find_blockage_front(&self, car: CarID, map: &Map) -> String {
-        self.driving
-            .find_blockage_front(car, map, &self.intersections)
     }
 
     /// For intersections with an agent waiting beyond some threshold, return when they started
@@ -410,6 +400,48 @@ impl Sim {
     pub fn debug_queue_lengths(&self, l: LaneID) -> Option<(Distance, Distance)> {
         self.driving.debug_queue_lengths(l)
     }
+
+    /// Returns the best-case time for a trip in a world with no traffic or intersection delays.
+    /// Might fail in some cases where the real trip succeeds, but the single-mode path can't be
+    /// found. Assumes the TripID exists.
+    pub fn get_trip_time_lower_bound(&self, map: &Map, id: TripID) -> Result<Duration, String> {
+        let info = self.trips.trip_info(id);
+        match TripEndpoint::path_req(info.start, info.end, info.mode, map) {
+            Some(req) => {
+                let path = map.pathfind(req)?;
+                let person = self
+                    .trips
+                    .get_person(self.trips.trip_to_person(id).unwrap())
+                    .unwrap();
+                let mut constraints = info.mode.to_constraints();
+                // TODO Fix TripMode.to_constraints
+                if info.mode == TripMode::Transit {
+                    constraints = PathConstraints::Pedestrian;
+                }
+                let max_speed = match info.mode {
+                    TripMode::Walk | TripMode::Transit => Some(person.ped_speed),
+                    // TODO We should really search the vehicles and grab it from there
+                    TripMode::Drive => None,
+                    // Assume just one bike
+                    TripMode::Bike => {
+                        person
+                            .vehicles
+                            .iter()
+                            .find(|v| v.vehicle_type == VehicleType::Bike)
+                            .unwrap()
+                            .max_speed
+                    }
+                };
+                Ok(path.estimate_duration(map, constraints, max_speed))
+            }
+            None => Err(format!(
+                "can't figure out PathRequest from {:?} to {:?} via {}",
+                info.start,
+                info.end,
+                info.mode.ongoing_verb()
+            )),
+        }
+    }
 }
 
 // Drawing
@@ -477,13 +509,13 @@ pub struct AgentProperties {
     pub waiting_here: Duration,
     pub total_waiting: Duration,
 
-    // TODO More continuous on a single lane
     pub dist_crossed: Distance,
     pub total_dist: Distance,
 }
 
 /// Why is an agent delayed? If there are multiple reasons, arbitrarily pick one -- ie, somebody
 /// could be blocked by two conflicting turns.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Serialize)]
 pub enum DelayCause {
     /// Queued behind someone, or someone's doing a conflicting turn, or someone's eating up space
     /// in a target queue

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use nbez::{Bez3o, BezCurve, Point2d};
 
 use abstutil::Timer;
-use geom::{Distance, PolyLine, Pt2D};
+use geom::{Angle, Distance, PolyLine, Pt2D};
 
 use crate::raw::RestrictionType;
 use crate::{Intersection, Lane, LaneID, Map, RoadID, Turn, TurnID, TurnType};
@@ -93,6 +93,20 @@ pub fn make_all_turns(map: &Map, i: &Intersection, timer: &mut Timer) -> Vec<Tur
     final_turns = remove_merging_turns(map, final_turns, TurnType::Right);
     final_turns = remove_merging_turns(map, final_turns, TurnType::Left);
 
+    if i.merged {
+        final_turns.retain(|turn| {
+            if turn.turn_type == TurnType::UTurn {
+                timer.warn(format!(
+                    "Removing u-turn from merged intersection: {}",
+                    turn.id
+                ));
+                false
+            } else {
+                true
+            }
+        });
+    }
+
     let mut outgoing_missing: HashSet<LaneID> = HashSet::new();
     for l in &i.outgoing_lanes {
         if map.get_l(*l).lane_type.supports_any_movement() {
@@ -121,7 +135,7 @@ fn ensure_unique(turns: Vec<Turn>) -> Vec<Turn> {
             // TODO This was once an assertion, but disabled for
             // https://github.com/dabreegster/abstreet/issues/84. A crosswalk gets created twice
             // and deduplicated here. Not sure why it was double-created in the first place.
-            println!("Duplicate turns {}!", t.id);
+            warn!("Duplicate turns {}!", t.id);
         } else {
             ids.insert(t.id);
             keep.push(t);
@@ -203,7 +217,7 @@ fn make_vehicle_turns(i: &Intersection, map: &Map, timer: &mut Timer) -> Vec<Tur
             }
 
             let turn_type =
-                TurnType::from_angles(src.last_line().angle(), dst.first_line().angle());
+                turn_type_from_angles(src.last_line().angle(), dst.first_line().angle());
             let geom = if turn_type == TurnType::Straight {
                 PolyLine::must_new(vec![src.last_pt(), dst.first_pt()])
             } else {
@@ -365,4 +379,21 @@ fn remove_merging_turns(map: &Map, input: Vec<Turn>, turn_type: TurnType) -> Vec
         // remove this, but it may remove some valid U-turn movements (like on Mercer).
     }
     turns
+}
+
+fn turn_type_from_angles(from: Angle, to: Angle) -> TurnType {
+    let diff = from.simple_shortest_rotation_towards(to);
+    // This is a pretty arbitrary parameter, but a difference of 30 degrees seems reasonable for
+    // some observed cases.
+    if diff.abs() < 30.0 {
+        TurnType::Straight
+    } else if diff.abs() > 135.0 {
+        TurnType::UTurn
+    } else if diff < 0.0 {
+        // Clockwise rotation
+        TurnType::Right
+    } else {
+        // Counter-clockwise rotation
+        TurnType::Left
+    }
 }

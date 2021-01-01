@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use abstutil::{deserialize_hashmap, serialize_hashmap, FixedMap, IndexableKey};
 use geom::{Distance, Duration, PolyLine, Speed, Time};
-use map_model::{IntersectionID, LaneID, Map, Path, PathStep, Traversable};
+use map_model::{IntersectionID, LaneID, Map, Path, Position, Traversable};
 
 use crate::mechanics::car::{Car, CarState};
 use crate::mechanics::Queue;
@@ -40,6 +40,8 @@ pub(crate) struct DrivingSimState {
     queues: HashMap<Traversable, Queue>,
     events: Vec<Event>,
 
+    waiting_to_spawn: BTreeMap<CarID, (Position, Option<PersonID>)>,
+
     recalc_lanechanging: bool,
     handle_uber_turns: bool,
 
@@ -58,6 +60,7 @@ impl DrivingSimState {
             events: Vec::new(),
             recalc_lanechanging: opts.recalc_lanechanging,
             handle_uber_turns: opts.handle_uber_turns,
+            waiting_to_spawn: BTreeMap::new(),
 
             time_to_unpark_onstreet: Duration::seconds(10.0),
             time_to_park_onstreet: Duration::seconds(15.0),
@@ -93,6 +96,7 @@ impl DrivingSimState {
         ctx: &mut Ctx,
     ) -> Option<CreateCar> {
         let first_lane = params.router.head().as_lane();
+        let start_dist = params.router.get_path().get_req().start.dist_along();
 
         if !ctx
             .intersections
@@ -101,7 +105,7 @@ impl DrivingSimState {
             return Some(params);
         }
         if let Some(idx) = self.queues[&Traversable::Lane(first_lane)].get_idx_to_insert_car(
-            params.start_dist,
+            start_dist,
             params.vehicle.length,
             now,
             &self.cars,
@@ -124,16 +128,13 @@ impl DrivingSimState {
                         self.time_to_unpark_offstreet
                     }
                 };
-                car.state = CarState::Unparking(
-                    params.start_dist,
-                    p.spot,
-                    TimeInterval::new(now, now + delay),
-                );
+                car.state =
+                    CarState::Unparking(start_dist, p.spot, TimeInterval::new(now, now + delay));
             } else {
                 // Have to do this early
                 if car.router.last_step() {
                     match car.router.maybe_handle_end(
-                        params.start_dist,
+                        start_dist,
                         &car.vehicle,
                         ctx.parking,
                         ctx.map,
@@ -151,12 +152,12 @@ impl DrivingSimState {
                     }
                     // We might've decided to go park somewhere farther, so get_end_dist no longer
                     // makes sense.
-                    if car.router.last_step() && params.start_dist > car.router.get_end_dist() {
+                    if car.router.last_step() && start_dist > car.router.get_end_dist() {
                         println!(
                             "WARNING: {} wants to spawn at {}, which is past their end of {} on a \
                              one-step path {}",
                             car.vehicle.id,
-                            params.start_dist,
+                            start_dist,
                             car.router.get_end_dist(),
                             first_lane
                         );
@@ -166,7 +167,7 @@ impl DrivingSimState {
                     }
                 }
 
-                car.state = car.crossing_state(params.start_dist, now, ctx.map);
+                car.state = car.crossing_state(start_dist, now, ctx.map);
             }
             ctx.scheduler
                 .push(car.state.get_end_time(), Command::UpdateCar(car.vehicle.id));
@@ -177,10 +178,17 @@ impl DrivingSimState {
                 // get_idx_to_insert_car does a more detailed check of the current space usage.
                 queue.reserved_length += car.vehicle.length + FOLLOWING_DISTANCE;
             }
+            self.waiting_to_spawn.remove(&car.vehicle.id);
             self.cars.insert(car.vehicle.id, car);
             return None;
         }
         Some(params)
+    }
+
+    /// If start_car_on_lane fails and a retry is scheduled, this is an idempotent way to mark the
+    /// vehicle as active, but waiting to spawn.
+    pub fn vehicle_waiting_to_spawn(&mut self, id: CarID, pos: Position, person: Option<PersonID>) {
+        self.waiting_to_spawn.insert(id, (pos, person));
     }
 
     /// State transitions for this car:
@@ -620,6 +628,8 @@ impl DrivingSimState {
     /// Abruptly remove a vehicle from the simulation. They may be in any arbitrary state, like in
     /// the middle of a turn or parking.
     pub fn delete_car(&mut self, c: CarID, now: Time, ctx: &mut Ctx) -> Vehicle {
+        self.waiting_to_spawn.remove(&c);
+
         let dists = self.queues[&self.cars[&c].router.head()].get_car_positions(
             now,
             &self.cars,
@@ -921,6 +931,15 @@ impl DrivingSimState {
             }
         }
 
+        for (id, (pos, person)) in &self.waiting_to_spawn {
+            result.push(UnzoomedAgent {
+                id: AgentID::Car(*id),
+                pos: pos.pt(map),
+                person: *person,
+                parking: false,
+            });
+        }
+
         result
     }
 
@@ -998,11 +1017,21 @@ impl DrivingSimState {
         let path = car.router.get_path();
         let time_spent_waiting = car.state.time_spent_waiting(now);
 
+        // In all cases, we can figure out exactly where we are along the current queue, then
+        // assume we've travelled from the start of that, unless it's the very first step.
+        let front = self.get_car_front(now, car);
+        let current_state_dist =
+            if car.router.head() == Traversable::Lane(path.get_req().start.lane()) {
+                front - path.get_req().start.dist_along()
+            } else {
+                front
+            };
+
         AgentProperties {
             total_time: now - car.started_at,
             waiting_here: time_spent_waiting,
             total_waiting: car.total_blocked_time + time_spent_waiting,
-            dist_crossed: path.crossed_so_far(),
+            dist_crossed: path.crossed_so_far() + current_state_dist,
             total_dist: path.total_length(),
         }
     }
@@ -1018,21 +1047,10 @@ impl DrivingSimState {
             .collect()
     }
 
-    pub fn trace_route(
-        &self,
-        now: Time,
-        id: CarID,
-        map: &Map,
-        dist_ahead: Option<Distance>,
-    ) -> Option<PolyLine> {
+    pub fn trace_route(&self, now: Time, id: CarID, map: &Map) -> Option<PolyLine> {
         let car = self.cars.get(&id)?;
-        let front = self.queues[&car.router.head()]
-            .get_car_positions(now, &self.cars, &self.queues)
-            .into_iter()
-            .find(|(c, _)| *c == id)
-            .unwrap()
-            .1;
-        car.router.get_path().trace(map, front, dist_ahead)
+        let front = self.get_car_front(now, car);
+        car.router.get_path().trace_from_start(map, front)
     }
 
     pub fn percent_along_route(&self, id: CarID) -> f64 {
@@ -1042,68 +1060,6 @@ impl DrivingSimState {
     pub fn get_owner_of_car(&self, id: CarID) -> Option<PersonID> {
         let car = self.cars.get(&id)?;
         car.vehicle.owner
-    }
-
-    // TODO Clean this up
-    pub fn find_blockage_front(
-        &self,
-        start: CarID,
-        map: &Map,
-        intersections: &IntersectionSimState,
-    ) -> String {
-        let mut seen_intersections = HashSet::new();
-
-        let mut current_head = start;
-        let mut current_lane = match self.cars[&start].router.head() {
-            Traversable::Lane(l) => l,
-            Traversable::Turn(_) => {
-                return "TODO Doesn't support starting from a turn yet".to_string();
-            }
-        };
-        loop {
-            current_head =
-                if let Some(c) = self.queues[&Traversable::Lane(current_lane)].cars.get(0) {
-                    *c
-                } else {
-                    return format!("no gridlock, {}", current_head);
-                };
-
-            let i = map.get_l(current_lane).dst_i;
-            if seen_intersections.contains(&i) {
-                return format!("Gridlock near {}! {:?}", i, seen_intersections);
-            }
-            seen_intersections.insert(i);
-
-            // Why isn't current_head proceeding? Pedestrians can never get stuck in an
-            // intersection.
-            if intersections
-                .get_accepted_agents(i)
-                .iter()
-                .any(|(a, _)| matches!(a, AgentID::Car(_)))
-            {
-                return format!("someone's turning in {} still", i);
-            }
-
-            current_lane = if let Some(PathStep::Lane(l)) = self.cars[&current_head]
-                .router
-                .get_path()
-                .get_steps()
-                .get(2)
-            {
-                *l
-            } else {
-                return format!(
-                    "{} is near end of path, probably tmp blockage",
-                    current_head
-                );
-            };
-
-            // Lack of capacity?
-            if self.queues[&Traversable::Lane(current_lane)].room_for_car(&self.cars[&current_head])
-            {
-                return format!("{} is about to proceed, tmp blockage", current_head);
-            }
-        }
     }
 
     pub fn target_lane_penalty(&self, l: LaneID) -> (usize, usize) {
@@ -1203,6 +1159,15 @@ impl DrivingSimState {
 
         intersections.populate_blocked_by(now, &mut graph, map, &self.cars, &self.queues);
         graph
+    }
+
+    fn get_car_front(&self, now: Time, car: &Car) -> Distance {
+        self.queues[&car.router.head()]
+            .get_car_positions(now, &self.cars, &self.queues)
+            .into_iter()
+            .find(|(c, _)| *c == car.vehicle.id)
+            .unwrap()
+            .1
     }
 }
 

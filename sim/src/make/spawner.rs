@@ -5,11 +5,13 @@ use rand::seq::SliceRandom;
 use rand_xorshift::XorShiftRng;
 use serde::{Deserialize, Serialize};
 
-use map_model::{BuildingID, BusRouteID, BusStopID, Map, PathConstraints, PathRequest, Position};
+use map_model::{
+    BuildingID, BusRouteID, BusStopID, IntersectionID, Map, PathConstraints, PathRequest, Position,
+};
 
 use crate::{
-    CarID, DrivingGoal, PersonID, SidewalkSpot, TripEndpoint, TripInfo, TripLeg, TripMode,
-    VehicleType, SPAWN_DIST,
+    CarID, DrivingGoal, PersonID, SidewalkSpot, TripInfo, TripLeg, TripMode, VehicleType,
+    SPAWN_DIST,
 };
 
 // TODO Some of these fields are unused now that we separately pass TripEndpoint
@@ -209,46 +211,6 @@ impl TripSpec {
         (person, info, self, legs)
     }
 
-    pub fn get_pathfinding_request(&self, map: &Map) -> Option<PathRequest> {
-        match self {
-            TripSpec::VehicleAppearing {
-                start_pos,
-                goal,
-                use_vehicle,
-                ..
-            } => {
-                let constraints = if use_vehicle.1 == VehicleType::Bike {
-                    PathConstraints::Bike
-                } else {
-                    PathConstraints::Car
-                };
-                Some(PathRequest {
-                    start: *start_pos,
-                    end: goal.goal_pos(constraints, map).unwrap(),
-                    constraints,
-                })
-            }
-            TripSpec::SpawningFailure { .. } => None,
-            // We don't know where the parked car will be
-            TripSpec::UsingParkedCar { .. } => None,
-            TripSpec::JustWalking { start, goal, .. } => Some(PathRequest {
-                start: start.sidewalk_pos,
-                end: goal.sidewalk_pos,
-                constraints: PathConstraints::Pedestrian,
-            }),
-            TripSpec::UsingBike { start, .. } => Some(PathRequest {
-                start: map.get_b(*start).sidewalk_pos,
-                end: SidewalkSpot::bike_rack(*start, map).unwrap().sidewalk_pos,
-                constraints: PathConstraints::Pedestrian,
-            }),
-            TripSpec::UsingTransit { start, stop1, .. } => Some(PathRequest {
-                start: start.sidewalk_pos,
-                end: SidewalkSpot::bus_stop(*stop1, map).sidewalk_pos,
-                constraints: PathConstraints::Pedestrian,
-            }),
-        }
-    }
-
     /// Turn an origin/destination pair and mode into a specific plan for instantiating a trip.
     /// Decisions like how to use public transit happen here.
     pub fn maybe_new(
@@ -334,7 +296,37 @@ impl TripSpec {
     }
 }
 
+/// Specifies where a trip begins or ends.
+#[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+pub enum TripEndpoint {
+    Bldg(BuildingID),
+    Border(IntersectionID),
+    /// Used for interactive spawning, tests, etc. For now, only valid as a trip's start.
+    SuddenlyAppear(Position),
+}
+
 impl TripEndpoint {
+    /// Figure out a single PathRequest that goes between two TripEndpoints. Assume a single mode
+    /// the entire time -- no walking to a car before driving, for instance. The result probably
+    /// won't be exactly what would happen on a real trip between the endpoints because of this
+    /// assumption.
+    pub fn path_req(
+        from: TripEndpoint,
+        to: TripEndpoint,
+        mode: TripMode,
+        map: &Map,
+    ) -> Option<PathRequest> {
+        Some(PathRequest {
+            start: from.clone().pos(mode, true, map)?,
+            end: to.clone().pos(mode, false, map)?,
+            constraints: match mode {
+                TripMode::Walk | TripMode::Transit => PathConstraints::Pedestrian,
+                TripMode::Drive => PathConstraints::Car,
+                TripMode::Bike => PathConstraints::Bike,
+            },
+        })
+    }
+
     fn start_sidewalk_spot(&self, map: &Map) -> Result<SidewalkSpot, String> {
         match self {
             TripEndpoint::Bldg(b) => Ok(SidewalkSpot::building(*b, map)),
@@ -359,9 +351,50 @@ impl TripEndpoint {
             TripEndpoint::Border(i) => map
                 .get_i(*i)
                 .some_incoming_road(map)
-                .and_then(|dr| DrivingGoal::end_at_border(dr, constraints, map))
+                .and_then(|dr| {
+                    let lanes = dr.lanes(constraints, map);
+                    if lanes.is_empty() {
+                        None
+                    } else {
+                        // TODO ideally could use any
+                        Some(DrivingGoal::Border(dr.dst_i(map), lanes[0]))
+                    }
+                })
                 .ok_or_else(|| format!("can't end at {} for {:?}", i, constraints)),
             TripEndpoint::SuddenlyAppear(_) => unreachable!(),
+        }
+    }
+
+    fn pos(self, mode: TripMode, from: bool, map: &Map) -> Option<Position> {
+        match mode {
+            TripMode::Walk | TripMode::Transit => (if from {
+                self.start_sidewalk_spot(map)
+            } else {
+                self.end_sidewalk_spot(map)
+            })
+            .ok()
+            .map(|spot| spot.sidewalk_pos),
+            TripMode::Drive | TripMode::Bike => {
+                if from {
+                    match self {
+                        // Fall through and use DrivingGoal also to start.
+                        TripEndpoint::Bldg(_) => {}
+                        TripEndpoint::Border(i) => {
+                            return map.get_i(i).some_outgoing_road(map).and_then(|dr| {
+                                dr.lanes(mode.to_constraints(), map)
+                                    .get(0)
+                                    .map(|l| Position::start(*l))
+                            });
+                        }
+                        TripEndpoint::SuddenlyAppear(pos) => {
+                            return Some(pos);
+                        }
+                    }
+                }
+                self.driving_goal(mode.to_constraints(), map)
+                    .ok()
+                    .and_then(|goal| goal.goal_pos(mode.to_constraints(), map))
+            }
         }
     }
 }

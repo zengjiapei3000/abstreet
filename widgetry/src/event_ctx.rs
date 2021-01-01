@@ -140,7 +140,7 @@ impl<'a> EventCtx<'a> {
             Widget::custom_col(vec![
                 Widget::draw_batch(
                     self,
-                    GeomBatch::load_svg(self.prerender, "system/assets/map/dont_walk.svg")
+                    GeomBatch::from_svg_contents(include_bytes!("../icons/loading.svg").to_vec())
                         .scale(5.0),
                 )
                 .container()

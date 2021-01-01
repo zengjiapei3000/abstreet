@@ -71,7 +71,10 @@ pub struct ColorScheme {
     pub fade_map_dark: Color,
     pub gui_style: Style,
     pub dialog_bg: Color,
-    pub minimap_cursor: Color,
+    pub minimap_cursor_border: Color,
+    pub minimap_cursor_bg: Option<Color>,
+    pub minimap_selected_zoom: Color,
+    pub minimap_unselected_zoom: Color,
 
     // Roads
     driving_lane: Color,
@@ -109,7 +112,7 @@ pub struct ColorScheme {
     pub map_background: Fill,
     pub unzoomed_interesting_intersection: Color,
     pub residential_building: Color,
-    pub commerical_building: Color,
+    pub commercial_building: Color,
     pub building_outline: Color,
     pub parking_lot: Color,
     pub grass: Fill,
@@ -192,7 +195,10 @@ impl ColorScheme {
             bottom_bar_name: Color::CYAN,
             fade_map_dark: Color::BLACK.alpha(0.6),
             dialog_bg: hex("#94C84A"),
-            minimap_cursor: Color::BLACK,
+            minimap_cursor_border: Color::BLACK,
+            minimap_cursor_bg: None,
+            minimap_selected_zoom: Color::WHITE,
+            minimap_unselected_zoom: Color::WHITE.alpha(0.2),
             gui_style,
 
             // Roads
@@ -231,7 +237,7 @@ impl ColorScheme {
             map_background: Color::grey(0.87).into(),
             unzoomed_interesting_intersection: Color::BLACK,
             residential_building: hex("#C4C1BC"),
-            commerical_building: hex("#9FABA7"),
+            commercial_building: hex("#9FABA7"),
             building_outline: hex("#938E85"),
             parking_lot: Color::grey(0.7),
             grass: hex("#94C84A").into(),
@@ -387,7 +393,7 @@ impl ColorScheme {
         cs.grass = Color::hex("#243A1F").into();
         cs.water = Color::hex("#21374E").into();
         cs.residential_building = Color::hex("#5E8962");
-        cs.commerical_building = Color::hex("#5D5F97");
+        cs.commercial_building = Color::hex("#5D5F97");
 
         cs.driving_lane = Color::hex("#404040");
         cs.parking_lane = Color::hex("#353535");
@@ -400,11 +406,17 @@ impl ColorScheme {
         cs.unzoomed_arterial = cs.sidewalk;
         cs.unzoomed_highway = cs.parking_lane;
         cs.unzoomed_residential = cs.driving_lane;
+        cs.unzoomed_interesting_intersection = cs.unzoomed_highway;
+        cs.stop_sign = Color::rgb_f(0.67, 0.55, 0.55);
+        cs.private_road = Color::hex("#9E757F");
 
-        cs.panel_bg = Color::rgba(0, 48, 70, 0.6);
+        cs.panel_bg = Color::hex("#003046").alpha(0.9);
         cs.gui_style.panel_bg = cs.panel_bg;
         cs.inner_panel = cs.panel_bg;
-        cs.minimap_cursor = Color::WHITE;
+        cs.minimap_cursor_border = Color::WHITE;
+        cs.minimap_cursor_bg = Some(Color::rgba(238, 112, 46, 0.2));
+        cs.minimap_selected_zoom = Color::hex("#EE702E");
+        cs.minimap_unselected_zoom = Color::WHITE.alpha(0.3);
 
         cs
     }
@@ -498,7 +510,7 @@ impl ColorScheme {
         cs.grass = hex("#ECEEED").into();
         cs.water = hex("#CAD2D3").into();
         cs.residential_building = hex("#E9E9E7").into();
-        cs.commerical_building = hex("#E9E9E7").into();
+        cs.commercial_building = hex("#E9E9E7").into();
         cs
     }
 
@@ -512,7 +524,7 @@ impl ColorScheme {
         cs.grass = hex("#323432").into();
         cs.water = hex("#181919").into();
         cs.residential_building = hex("#2C2C2B").into();
-        cs.commerical_building = hex("#2C2C2B").into();
+        cs.commercial_building = hex("#2C2C2B").into();
 
         // TODO Things like this could be refactored in zoomed_road_surface
         cs.driving_lane = road;
@@ -541,7 +553,7 @@ impl ColorScheme {
         cs.water = hex("#75CFF0").into();
 
         cs.residential_building = hex("#DCD9D6");
-        cs.commerical_building = cs.residential_building;
+        cs.commercial_building = cs.residential_building;
 
         cs
     }
@@ -551,7 +563,7 @@ impl ColorScheme {
         let nonempty_space = Color::BLACK;
         cs.map_background = Color::WHITE.into();
         cs.residential_building = nonempty_space;
-        cs.commerical_building = nonempty_space;
+        cs.commercial_building = nonempty_space;
         cs.building_outline = nonempty_space;
         cs.normal_intersection = nonempty_space;
         cs.general_road_marking = nonempty_space;

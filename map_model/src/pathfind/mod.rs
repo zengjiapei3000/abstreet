@@ -1,27 +1,27 @@
 //! Everything related to pathfinding through a map for different types of agents.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 use std::fmt;
 
 use enumset::EnumSetType;
 use serde::{Deserialize, Serialize};
 
-use abstutil::Timer;
-use geom::{Distance, PolyLine, EPSILON_DIST};
+use geom::{Distance, Duration, PolyLine, Speed, EPSILON_DIST};
 
 pub use self::ch::ContractionHierarchyPathfinder;
 pub use self::dijkstra::{build_graph_for_pedestrians, build_graph_for_vehicles};
 pub use self::driving::driving_cost;
+pub use self::pathfinder::Pathfinder;
 pub use self::walking::{walking_cost, WalkingNode};
 use crate::{
-    osm, BuildingID, BusRouteID, BusStopID, Lane, LaneID, LaneType, Map, Position, Traversable,
-    TurnID, UberTurn,
+    osm, BuildingID, Lane, LaneID, LaneType, Map, Position, Traversable, TurnID, UberTurn,
 };
 
 mod ch;
 mod dijkstra;
 mod driving;
 mod node_map;
+mod pathfinder;
 // TODO tmp
 pub mod uber_turns;
 mod walking;
@@ -52,14 +52,14 @@ impl PathStep {
         self.as_traversable().as_turn()
     }
 
-    // Returns dist_remaining. start is relative to the start of the actual geometry -- so from the
-    // lane's real start for ContraflowLane.
-    fn slice(
+    // start is relative to the start of the actual geometry -- so from the lane's real start for
+    // ContraflowLane.
+    fn exact_slice(
         &self,
         map: &Map,
         start: Distance,
         dist_ahead: Option<Distance>,
-    ) -> Result<(PolyLine, Distance), String> {
+    ) -> Result<PolyLine, String> {
         if let Some(d) = dist_ahead {
             if d < Distance::ZERO {
                 panic!("Negative dist_ahead?! {}", d);
@@ -73,26 +73,26 @@ impl PathStep {
             PathStep::Lane(id) => {
                 let pts = &map.get_l(*id).lane_center_pts;
                 if let Some(d) = dist_ahead {
-                    pts.slice(start, start + d)
+                    pts.maybe_exact_slice(start, start + d)
                 } else {
-                    pts.slice(start, pts.length())
+                    pts.maybe_exact_slice(start, pts.length())
                 }
             }
             PathStep::ContraflowLane(id) => {
                 let pts = map.get_l(*id).lane_center_pts.reversed();
                 let reversed_start = pts.length() - start;
                 if let Some(d) = dist_ahead {
-                    pts.slice(reversed_start, reversed_start + d)
+                    pts.maybe_exact_slice(reversed_start, reversed_start + d)
                 } else {
-                    pts.slice(reversed_start, pts.length())
+                    pts.maybe_exact_slice(reversed_start, pts.length())
                 }
             }
             PathStep::Turn(id) => {
                 let pts = &map.get_t(*id).geom;
                 if let Some(d) = dist_ahead {
-                    pts.slice(start, start + d)
+                    pts.maybe_exact_slice(start, start + d)
                 } else {
-                    pts.slice(start, pts.length())
+                    pts.maybe_exact_slice(start, pts.length())
                 }
             }
         }
@@ -102,7 +102,9 @@ impl PathStep {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Path {
     steps: VecDeque<PathStep>,
-    end_dist: Distance,
+    // The original request used to produce this path. Calling shift(), add(), modify_step(), etc
+    // will NOT affect this.
+    orig_req: PathRequest,
 
     // Also track progress along the original path.
     total_length: Distance,
@@ -119,7 +121,7 @@ impl Path {
     pub(crate) fn new(
         map: &Map,
         steps: Vec<PathStep>,
-        end_dist: Distance,
+        orig_req: PathRequest,
         uber_turns: Vec<UberTurn>,
     ) -> Path {
         // Haven't seen problems here in a very long time. Noticeably saves some time to skip.
@@ -129,40 +131,57 @@ impl Path {
         if false {
             validate_restrictions(map, &steps);
         }
-        // Slightly expensive, but the contraction hierarchy weights aren't distances.
-        let mut total_length = Distance::ZERO;
-        for s in &steps {
-            total_length += s.as_traversable().length(map);
-        }
-        Path {
+        let mut path = Path {
             steps: VecDeque::from(steps),
-            end_dist,
-            total_length,
+            orig_req,
+            total_length: Distance::ZERO,
             crossed_so_far: Distance::ZERO,
             uber_turns: uber_turns.into_iter().collect(),
             currently_inside_ut: None,
+        };
+        for step in &path.steps {
+            path.total_length += path.dist_crossed_from_step(map, step);
+        }
+        path
+    }
+
+    /// Once we finish this PathStep, how much distance will be crossed? If the step is at the
+    /// beginning or end of our path, then the full length may not be used.
+    pub fn dist_crossed_from_step(&self, map: &Map, step: &PathStep) -> Distance {
+        match step {
+            PathStep::Lane(l) => {
+                let lane = map.get_l(*l);
+                if self.orig_req.start.lane() == lane.id {
+                    lane.length() - self.orig_req.start.dist_along()
+                } else if self.orig_req.end.lane() == lane.id {
+                    self.orig_req.end.dist_along()
+                } else {
+                    lane.length()
+                }
+            }
+            PathStep::ContraflowLane(l) => {
+                let lane = map.get_l(*l);
+                if self.orig_req.start.lane() == lane.id {
+                    self.orig_req.start.dist_along()
+                } else if self.orig_req.end.lane() == lane.id {
+                    lane.length() - self.orig_req.end.dist_along()
+                } else {
+                    lane.length()
+                }
+            }
+            PathStep::Turn(t) => map.get_t(*t).geom.length(),
         }
     }
 
-    pub fn one_step(l: LaneID, map: &Map) -> Path {
-        Path::new(
-            map,
-            vec![PathStep::Lane(l)],
-            map.get_l(l).length(),
-            Vec::new(),
-        )
+    pub fn one_step(req: PathRequest, map: &Map) -> Path {
+        assert_eq!(req.start.lane(), req.end.lane());
+        Path::new(map, vec![PathStep::Lane(req.start.lane())], req, Vec::new())
     }
 
-    /// Only used for weird serialization magic.
-    pub fn dummy() -> Path {
-        Path {
-            steps: VecDeque::new(),
-            end_dist: Distance::ZERO,
-            total_length: Distance::ZERO,
-            crossed_so_far: Distance::ZERO,
-            uber_turns: VecDeque::new(),
-            currently_inside_ut: None,
-        }
+    /// The original PathRequest used to produce this path. If the path has been modified since
+    /// creation, the start and end of the request won't match up with the current path steps.
+    pub fn get_req(&self) -> &PathRequest {
+        &self.orig_req
     }
 
     pub fn crossed_so_far(&self) -> Distance {
@@ -210,7 +229,7 @@ impl Path {
 
     pub fn shift(&mut self, map: &Map) -> PathStep {
         let step = self.steps.pop_front().unwrap();
-        self.crossed_so_far += step.as_traversable().length(map);
+        self.crossed_so_far += self.dist_crossed_from_step(map, &step);
 
         if let Some(ref ut) = self.currently_inside_ut {
             if step == PathStep::Turn(*ut.path.last().unwrap()) {
@@ -231,35 +250,47 @@ impl Path {
         step
     }
 
-    // TODO Maybe need to amend uber_turns?
     pub fn add(&mut self, step: PathStep, map: &Map) {
+        if let Some(PathStep::Lane(l)) = self.steps.back() {
+            if *l == self.orig_req.end.lane() {
+                self.total_length += map.get_l(*l).length() - self.orig_req.end.dist_along();
+            }
+        }
+        // TODO We assume we'll be going along the full length of this new step
         self.total_length += step.as_traversable().length(map);
+
         self.steps.push_back(step);
+        // TODO Maybe need to amend uber_turns?
     }
 
-    // TODO This is a brittle, tied to exactly what opportunistically_lanechange does.
-    pub fn approaching_uber_turn(&self) -> bool {
-        if self.steps.len() < 5 || self.uber_turns.is_empty() {
-            return false;
-        }
-        if let PathStep::Turn(t) = self.steps[1] {
-            if self.uber_turns[0].path[0] == t {
-                return true;
-            }
-        }
-        if let PathStep::Turn(t) = self.steps[3] {
-            if self.uber_turns[0].path[0] == t {
-                return true;
-            }
-        }
-        false
+    pub fn is_upcoming_uber_turn_component(&self, t: TurnID) -> bool {
+        self.uber_turns
+            .front()
+            .map(|ut| ut.path.contains(&t))
+            .unwrap_or(false)
     }
 
     /// Trusting the caller to do this in valid ways.
     pub fn modify_step(&mut self, idx: usize, step: PathStep, map: &Map) {
         assert!(self.currently_inside_ut.is_none());
         assert!(idx != 0);
+        // We're assuming this step was in the middle of the path, meaning we were planning to
+        // travel its full length
         self.total_length -= self.steps[idx].as_traversable().length(map);
+
+        // When replacing a turn, also update any references to it in uber_turns
+        if let PathStep::Turn(old_turn) = self.steps[idx] {
+            for uts in &mut self.uber_turns {
+                if let Some(turn_idx) = uts.path.iter().position(|i| i == &old_turn) {
+                    if let PathStep::Turn(new_turn) = step {
+                        uts.path[turn_idx] = new_turn;
+                    } else {
+                        panic!("expected turn, but found {:?}", step);
+                    }
+                }
+            }
+        }
+
         self.steps[idx] = step;
         self.total_length += self.steps[idx].as_traversable().length(map);
 
@@ -290,71 +321,55 @@ impl Path {
         self.steps[self.steps.len() - 1]
     }
 
-    /// dist_ahead is unlimited when None.
-    pub fn trace(
-        &self,
-        map: &Map,
-        start_dist: Distance,
-        dist_ahead: Option<Distance>,
-    ) -> Option<PolyLine> {
-        let mut pts_so_far: Option<PolyLine> = None;
-        let mut dist_remaining = dist_ahead;
+    /// Traces along the path from its originally requested start. This is only valid to call for
+    /// an umodified path.
+    pub fn trace(&self, map: &Map) -> Option<PolyLine> {
+        assert_eq!(
+            self.steps[0].as_traversable(),
+            Traversable::Lane(self.orig_req.start.lane())
+        );
+        self.trace_from_start(map, self.orig_req.start.dist_along())
+    }
+
+    /// Traces along the path from a specified distance along the first step until the end.
+    pub fn trace_from_start(&self, map: &Map, start_dist: Distance) -> Option<PolyLine> {
+        let orig_end_dist = self.orig_req.end.dist_along();
 
         if self.steps.len() == 1 {
-            let dist = if start_dist < self.end_dist {
-                self.end_dist - start_dist
+            let dist_ahead = if start_dist < orig_end_dist {
+                orig_end_dist - start_dist
             } else {
-                start_dist - self.end_dist
+                start_dist - orig_end_dist
             };
-            if let Some(d) = dist_remaining {
-                if dist < d {
-                    dist_remaining = Some(dist);
-                }
-            } else {
-                dist_remaining = Some(dist);
-            }
+
+            // Why might this fail? It's possible there are paths on their last step that're
+            // effectively empty, because they're a 0-length turn, or something like a pedestrian
+            // crossing a front path and immediately getting on a bike.
+            return self.steps[0]
+                .exact_slice(map, start_dist, Some(dist_ahead))
+                .ok();
         }
 
-        // Special case the first step.
-        if let Ok((pts, dist)) = self.steps[0].slice(map, start_dist, dist_remaining) {
+        let mut pts_so_far: Option<PolyLine> = None;
+
+        // Special case the first step with start_dist.
+        if let Ok(pts) = self.steps[0].exact_slice(map, start_dist, None) {
             pts_so_far = Some(pts);
-            if dist_remaining.is_some() {
-                dist_remaining = Some(dist);
-            }
-        }
-
-        if self.steps.len() == 1 {
-            // It's possible there are paths on their last step that're effectively empty, because
-            // they're a 0-length turn, or something like a pedestrian crossing a front path and
-            // immediately getting on a bike.
-            return pts_so_far;
         }
 
         // Crunch through the intermediate steps, as long as we can.
         for i in 1..self.steps.len() {
-            if let Some(d) = dist_remaining {
-                if d <= Distance::ZERO {
-                    // We know there's at least some geometry if we made it here, so unwrap to
-                    // verify that understanding.
-                    return Some(pts_so_far.unwrap());
-                }
-            }
-            // If we made it to the last step, maybe use the end_dist.
-            if i == self.steps.len() - 1 {
-                let end_dist = match self.steps[i] {
+            // Restrict the last step's slice
+            let dist_ahead = if i == self.steps.len() - 1 {
+                Some(match self.steps[i] {
                     PathStep::ContraflowLane(l) => {
-                        map.get_l(l).lane_center_pts.reversed().length() - self.end_dist
+                        map.get_l(l).lane_center_pts.reversed().length() - orig_end_dist
                     }
-                    _ => self.end_dist,
-                };
-                if let Some(d) = dist_remaining {
-                    if end_dist < d {
-                        dist_remaining = Some(end_dist);
-                    }
-                } else {
-                    dist_remaining = Some(end_dist);
-                }
-            }
+                    _ => orig_end_dist,
+                })
+            } else {
+                None
+            };
 
             let start_dist_this_step = match self.steps[i] {
                 // TODO Length of a PolyLine can slightly change when points are reversed! That
@@ -362,9 +377,7 @@ impl Path {
                 PathStep::ContraflowLane(l) => map.get_l(l).lane_center_pts.reversed().length(),
                 _ => Distance::ZERO,
             };
-            if let Ok((new_pts, dist)) =
-                self.steps[i].slice(map, start_dist_this_step, dist_remaining)
-            {
+            if let Ok(new_pts) = self.steps[i].exact_slice(map, start_dist_this_step, dist_ahead) {
                 if pts_so_far.is_some() {
                     match pts_so_far.unwrap().extend(new_pts) {
                         Ok(new) => {
@@ -377,9 +390,6 @@ impl Path {
                     }
                 } else {
                     pts_so_far = Some(new_pts);
-                }
-                if dist_remaining.is_some() {
-                    dist_remaining = Some(dist);
                 }
             }
         }
@@ -404,10 +414,37 @@ impl Path {
             _ => unreachable!(),
         };
         self.steps.push_back(PathStep::Turn(turn));
+        // TODO Need to correct for the uncrossed start/end distance where we're gluing together
         self.total_length += map.get_t(turn).geom.length();
         self.steps.extend(other.steps);
         self.total_length += other.total_length;
         self.uber_turns.extend(other.uber_turns);
+    }
+
+    /// Estimate how long following the path will take in the best case, assuming no traffic or
+    /// delay at intersections. To determine the speed along each step, the agent following their
+    /// path and their optional max_speed must be specified.
+    pub fn estimate_duration(
+        &self,
+        map: &Map,
+        constraints: PathConstraints,
+        max_speed: Option<Speed>,
+    ) -> Duration {
+        let mut total = Duration::ZERO;
+        for step in &self.steps {
+            let dist = self.dist_crossed_from_step(map, step);
+            let speed_limit = step.as_traversable().speed_limit(map);
+            let speed = if constraints == PathConstraints::Pedestrian {
+                // Pedestrians don't care about the road's speed limit
+                max_speed.unwrap()
+            } else if let Some(max) = max_speed {
+                speed_limit.min(max)
+            } else {
+                speed_limit
+            };
+            total += dist / speed;
+        }
+        total
     }
 }
 
@@ -598,53 +635,6 @@ fn validate_restrictions(map: &Map, steps: &Vec<PathStep>) {
                     );
                 }
             }
-        }
-    }
-}
-
-/// Most of the time, prefer using the faster contraction hierarchies. But sometimes, callers can
-/// explicitly opt into a slower (but preparation-free) pathfinder that just uses Dijkstra's
-/// maneuever.
-#[derive(Serialize, Deserialize)]
-pub enum Pathfinder {
-    Dijkstra,
-    CH(ContractionHierarchyPathfinder),
-}
-
-impl Pathfinder {
-    pub fn pathfind(&self, req: PathRequest, map: &Map) -> Option<Path> {
-        match self {
-            Pathfinder::Dijkstra => dijkstra::pathfind(req, map),
-            Pathfinder::CH(ref p) => p.pathfind(req, map),
-        }
-    }
-    pub fn pathfind_avoiding_lanes(
-        &self,
-        req: PathRequest,
-        avoid: BTreeSet<LaneID>,
-        map: &Map,
-    ) -> Option<Path> {
-        dijkstra::pathfind_avoiding_lanes(req, avoid, map)
-    }
-
-    // TODO Consider returning the walking-only path in the failure case, to avoid wasting work
-    pub fn should_use_transit(
-        &self,
-        map: &Map,
-        start: Position,
-        end: Position,
-    ) -> Option<(BusStopID, Option<BusStopID>, BusRouteID)> {
-        match self {
-            // TODO Implement this
-            Pathfinder::Dijkstra => None,
-            Pathfinder::CH(ref p) => p.should_use_transit(map, start, end),
-        }
-    }
-
-    pub fn apply_edits(&mut self, map: &Map, timer: &mut Timer) {
-        match self {
-            Pathfinder::Dijkstra => {}
-            Pathfinder::CH(ref mut p) => p.apply_edits(map, timer),
         }
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use maplit::btreeset;
 
 use geom::Speed;
@@ -45,6 +47,7 @@ fn make_select_panel(ctx: &mut EventCtx, selector: &RoadSelector) -> Panel {
             ))
             .build(ctx, "export roads to shared-row", None),
             Btn::text_fg("export one road to Streetmix").build_def(ctx, None),
+            Btn::text_fg("export list of roads").build_def(ctx, None),
             Btn::text_fg("Cancel").build_def(ctx, Key::Escape),
         ])
         .evenly_spaced(),
@@ -71,6 +74,7 @@ impl State<App> for BulkSelect {
                 "export roads to shared-row" => {
                     let path = crate::debug::shared_row::export(
                         self.selector.roads.iter().cloned().collect(),
+                        self.selector.intersections.iter().cloned().collect(),
                         &app.primary.map,
                     );
                     return Transition::Push(PopupMsg::new(
@@ -92,6 +96,18 @@ impl State<App> for BulkSelect {
                              at {}",
                             path
                         )],
+                    ));
+                }
+                "export list of roads" => {
+                    let mut osm_ids: BTreeSet<map_model::osm::WayID> = BTreeSet::new();
+                    for r in &self.selector.roads {
+                        osm_ids.insert(app.primary.map.get_r(*r).orig_id.osm_way_id);
+                    }
+                    abstutil::write_json("osm_ways.json".to_string(), &osm_ids);
+                    return Transition::Push(PopupMsg::new(
+                        ctx,
+                        "List of roads exported",
+                        vec!["Wrote osm_ways.json"],
                     ));
                 }
                 x => {

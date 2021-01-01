@@ -110,7 +110,7 @@ impl DrawCar {
 
             if let Some(t) = input.waiting_for_turn {
                 match map.get_t(t).turn_type {
-                    TurnType::Left => {
+                    TurnType::Left | TurnType::UTurn => {
                         let (pos, angle) = input
                             .body
                             .must_dist_along(input.body.length() - Distance::meters(2.5));
@@ -170,7 +170,7 @@ impl DrawCar {
             {
                 draw_default.append(
                     Text::from(Line(line).fg(cs.bus_label))
-                        .render_to_batch(prerender)
+                        .render_autocropped(prerender)
                         .scale(0.07)
                         .centered_on(pt)
                         .rotate(angle.reorient()),

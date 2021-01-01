@@ -1,12 +1,15 @@
 //! This crate contains common code for applications that draw and interact with a `Map`.
 
+#[macro_use]
+extern crate log;
+
 use abstutil::Timer;
 use geom::{Duration, Pt2D, Time};
 use map_model::{AreaID, BuildingID, BusStopID, IntersectionID, LaneID, Map, ParkingLotID, RoadID};
 use sim::{AgentID, CarID, PedestrianID, Sim};
 use widgetry::{EventCtx, GfxCtx, State};
 
-pub use self::simple_app::{Cached, SimpleApp};
+pub use self::simple_app::SimpleApp;
 use crate::render::DrawOptions;
 use colors::{ColorScheme, ColorSchemeChoice};
 use options::Options;

@@ -39,7 +39,7 @@ impl DrawBuilding {
         let bldg_color = if bldg.amenities.is_empty() {
             cs.residential_building
         } else {
-            cs.commerical_building
+            cs.commercial_building
         };
 
         match &opts.camera_angle {
@@ -57,7 +57,7 @@ impl DrawBuilding {
                     // Might need to scale down more for some buildings, but so far, this works
                     // everywhere.
                     bldg_batch.append(
-                        GeomBatch::load_svg(ctx.prerender, "system/assets/map/parking.svg")
+                        GeomBatch::load_svg(ctx, "system/assets/map/parking.svg")
                             .scale(0.1)
                             .centered_on(bldg.label_center),
                     );
@@ -242,7 +242,7 @@ impl Renderable for DrawBuilding {
                         txt.append(Line(format!(" (+{})", b.amenities.len() - 1)).fg(Color::BLACK));
                     }
                     batch.append(
-                        txt.render_to_batch(g.prerender)
+                        txt.render_autocropped(g)
                             .scale(0.1)
                             .centered_on(b.label_center),
                     );

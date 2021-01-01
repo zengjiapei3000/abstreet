@@ -35,14 +35,14 @@ impl Checkbox {
     ) -> Widget {
         let label = label.into();
         let (off, hitbox) = Widget::row(vec![
-            GeomBatch::load_svg(ctx.prerender, "system/assets/widgetry/toggle_off.svg")
+            GeomBatch::from_svg_contents(include_bytes!("../../icons/toggle_off.svg").to_vec())
                 .batch()
                 .centered_vert(),
             label.clone().batch_text(ctx),
         ])
         .to_geom(ctx, None);
         let (on, _) = Widget::row(vec![
-            GeomBatch::load_svg(ctx.prerender, "system/assets/widgetry/toggle_on.svg")
+            GeomBatch::from_svg_contents(include_bytes!("../../icons/toggle_on.svg").to_vec())
                 .batch()
                 .centered_vert(),
             label.clone().batch_text(ctx),
@@ -118,7 +118,7 @@ impl Checkbox {
 
     pub fn colored(ctx: &EventCtx, label: &str, color: Color, enabled: bool) -> Widget {
         let (off, hitbox) = Widget::row(vec![
-            GeomBatch::load_svg(ctx.prerender, "system/assets/widgetry/checkbox.svg")
+            GeomBatch::from_svg_contents(include_bytes!("../../icons/checkbox.svg").to_vec())
                 .color(RewriteColor::ChangeAll(color.alpha(0.3)))
                 .batch()
                 .centered_vert(),
@@ -126,7 +126,7 @@ impl Checkbox {
         ])
         .to_geom(ctx, None);
         let (on, _) = Widget::row(vec![
-            GeomBatch::load_svg(ctx.prerender, "system/assets/widgetry/checkbox.svg")
+            GeomBatch::from_svg_contents(include_bytes!("../../icons/checkbox.svg").to_vec())
                 .color(RewriteColor::Change(Color::BLACK, color))
                 .batch()
                 .centered_vert(),
@@ -172,20 +172,30 @@ impl Checkbox {
         let left_label = left_label.into();
         let right_label = right_label.into();
         let hotkey = hotkey.into();
+        let right =
+            GeomBatch::from_svg_contents(include_bytes!("../../icons/toggle_right.svg").to_vec());
+        let left =
+            GeomBatch::from_svg_contents(include_bytes!("../../icons/toggle_left.svg").to_vec());
+        let hitbox = right.get_bounds().get_rectangle();
+
         Widget::row(vec![
             left_label.clone().draw_text(ctx),
             Checkbox::new(
                 enabled,
-                Btn::svg_def("system/assets/widgetry/toggle_right.svg").build(
-                    ctx,
-                    left_label,
-                    hotkey.clone(),
-                ),
-                Btn::svg_def("system/assets/widgetry/toggle_left.svg").build(
-                    ctx,
-                    right_label.clone(),
-                    hotkey,
-                ),
+                Btn::custom(
+                    right.clone(),
+                    right.color(RewriteColor::ChangeAll(ctx.style().hovering_color)),
+                    hitbox.clone(),
+                    None,
+                )
+                .build(ctx, left_label, hotkey.clone()),
+                Btn::custom(
+                    left.clone(),
+                    left.color(RewriteColor::ChangeAll(ctx.style().hovering_color)),
+                    hitbox,
+                    None,
+                )
+                .build(ctx, right_label.clone(), hotkey),
             )
             .named(label),
             right_label.draw_text(ctx),

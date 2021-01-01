@@ -188,3 +188,23 @@ impl fmt::Display for Ring {
         write!(f, "])")
     }
 }
+
+impl From<Ring> for geo::LineString<f64> {
+    fn from(ring: Ring) -> Self {
+        let coords = ring
+            .pts
+            .into_iter()
+            .map(geo::Coordinate::from)
+            .collect::<Vec<_>>();
+        Self(coords)
+    }
+}
+
+impl From<geo::LineString<f64>> for Ring {
+    fn from(line_string: geo::LineString<f64>) -> Self {
+        // Dedupe adjacent points. Only needed for results from concave hull.
+        let mut pts: Vec<Pt2D> = line_string.0.into_iter().map(Pt2D::from).collect();
+        pts.dedup();
+        Self::must_new(pts)
+    }
+}

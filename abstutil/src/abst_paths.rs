@@ -108,7 +108,7 @@ impl MapName {
     pub fn list_all_maps() -> Vec<MapName> {
         let mut names = Vec::new();
         for city in list_all_objects(path("system")) {
-            if city == "assets" || city == "fonts" || city == "proposals" {
+            if city == "assets" || city == "proposals" {
                 continue;
             }
             for map in list_all_objects(path(format!("system/{}/maps", city))) {
@@ -163,6 +163,10 @@ pub fn parse_scenario_path(path: &str) -> (MapName, String) {
 }
 
 // Player data (Players edit this)
+
+pub fn path_player<I: Into<String>>(p: I) -> String {
+    path(format!("player/{}", p.into()))
+}
 
 pub fn path_camera_state(name: &MapName) -> String {
     path(format!(

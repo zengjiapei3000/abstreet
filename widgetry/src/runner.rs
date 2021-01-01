@@ -5,6 +5,7 @@ use image::{GenericImageView, Pixel};
 use instant::Instant;
 use winit::window::Icon;
 
+use abstutil::{elapsed_seconds, Timer};
 use geom::Duration;
 
 use crate::app_state::App;
@@ -15,6 +16,8 @@ use crate::{
 };
 
 const UPDATE_FREQUENCY: std::time::Duration = std::time::Duration::from_millis(1000 / 30);
+// Manually enable and then check STDOUT
+const DEBUG_PERFORMANCE: bool = false;
 
 // TODO Rename this GUI or something
 pub(crate) struct State<A: SharedAppState> {
@@ -99,7 +102,11 @@ impl<A: SharedAppState> State<A> {
                 style: &mut self.style,
                 updates_requested: vec![],
             };
+            let started = Instant::now();
             self.app.event(&mut ctx);
+            if DEBUG_PERFORMANCE {
+                println!("- event() took {}s", elapsed_seconds(started));
+            }
             // TODO We should always do has_been_consumed, but various hacks prevent this from being
             // true. For now, just avoid the specific annoying redraw case when a KeyRelease event
             // is unused.
@@ -123,6 +130,7 @@ impl<A: SharedAppState> State<A> {
 
         self.canvas.start_drawing();
 
+        let started = Instant::now();
         if let Err(err) = panic::catch_unwind(panic::AssertUnwindSafe(|| {
             self.app.draw(&mut g);
         })) {
@@ -131,12 +139,13 @@ impl<A: SharedAppState> State<A> {
         }
         let naming_hint = g.naming_hint.take();
 
-        if false {
+        if DEBUG_PERFORMANCE {
             println!(
-                "----- {} uploads, {} draw calls, {} forks -----",
+                "----- {} uploads, {} draw calls, {} forks. draw() took {} -----",
                 g.get_num_uploads(),
                 g.num_draw_calls,
-                g.num_forks
+                g.num_forks,
+                elapsed_seconds(started)
             );
         }
 
@@ -189,7 +198,8 @@ pub fn run<
     settings: Settings,
     make_app: F,
 ) -> ! {
-    let (prerender_innards, event_loop) = crate::backend::setup(&settings.window_title);
+    let mut timer = Timer::new("setup widgetry");
+    let (prerender_innards, event_loop) = crate::backend::setup(&settings.window_title, &mut timer);
 
     if let Some(ref path) = settings.window_icon {
         if !cfg!(target_arch = "wasm32") {
@@ -218,6 +228,7 @@ pub fn run<
     let mut canvas = Canvas::new(initial_size);
     prerender.window_resized(initial_size);
 
+    timer.start("setup app");
     let (shared_app_state, states) = make_app(&mut EventCtx {
         fake_mouseover: true,
         input: UserInput::new(Event::NoOp, &canvas),
@@ -226,10 +237,12 @@ pub fn run<
         style: &mut style,
         updates_requested: vec![],
     });
+    timer.stop("setup app");
     let app = App {
         shared_app_state,
         states,
     };
+    timer.done();
 
     let mut state = State { canvas, app, style };
 

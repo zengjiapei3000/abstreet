@@ -22,15 +22,15 @@ use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use serde::{Deserialize, Serialize};
 
-use abstutil::{serialize_btreemap, CmdArgs, MapName, Timer};
+use abstutil::{serialize_btreemap, CmdArgs, MapName, Parallelism, Timer};
 use geom::{Distance, Duration, LonLat, Time};
 use map_model::{
     CompressedMovementID, ControlTrafficSignal, EditCmd, EditIntersection, IntersectionID, Map,
     MovementID, PermanentMapEdits, RoadID, TurnID,
 };
 use sim::{
-    AgentID, AgentType, ExternalPerson, PersonID, Scenario, ScenarioModifier, Sim, SimFlags,
-    SimOptions, TripID, TripMode, VehicleType,
+    AgentID, AgentType, DelayCause, ExternalPerson, PersonID, Scenario, ScenarioModifier, Sim,
+    SimFlags, SimOptions, TripID, TripMode, VehicleType,
 };
 
 lazy_static::lazy_static! {
@@ -118,6 +118,12 @@ fn handle_command(
     map: &mut Map,
     load: &mut LoadSim,
 ) -> Result<String, Box<dyn Error>> {
+    let get = |key: &str| {
+        params
+            .get(key)
+            .ok_or_else(|| format!("missing GET parameter {}", key))
+    };
+
     match path {
         // Controlling the simulation
         "/sim/reset" => {
@@ -142,7 +148,7 @@ fn handle_command(
         }
         "/sim/get-time" => Ok(sim.time().to_string()),
         "/sim/goto-time" => {
-            let t = Time::parse(&params["t"])?;
+            let t = Time::parse(get("t")?)?;
             if t <= sim.time() {
                 Err(format!("{} is in the past. call /sim/reset first?", t).into())
             } else {
@@ -175,7 +181,7 @@ fn handle_command(
         }
         // Traffic signals
         "/traffic-signals/get" => {
-            let i = IntersectionID(params["id"].parse::<usize>()?);
+            let i = IntersectionID(get("id")?.parse::<usize>()?);
             if let Some(ts) = map.maybe_get_traffic_signal(i) {
                 Ok(abstutil::to_json(ts))
             } else {
@@ -200,9 +206,9 @@ fn handle_command(
             Ok(format!("{} has been updated", id))
         }
         "/traffic-signals/get-delays" => {
-            let i = IntersectionID(params["id"].parse::<usize>()?);
-            let t1 = Time::parse(&params["t1"])?;
-            let t2 = Time::parse(&params["t2"])?;
+            let i = IntersectionID(get("id")?.parse::<usize>()?);
+            let t1 = Time::parse(get("t1")?)?;
+            let t2 = Time::parse(get("t2")?)?;
             let ts = if let Some(ts) = map.maybe_get_traffic_signal(i) {
                 ts
             } else {
@@ -230,7 +236,7 @@ fn handle_command(
             Ok(abstutil::to_json(&delays))
         }
         "/traffic-signals/get-cumulative-thruput" => {
-            let i = IntersectionID(params["id"].parse::<usize>()?);
+            let i = IntersectionID(get("id")?.parse::<usize>()?);
             let ts = if let Some(ts) = map.maybe_get_traffic_signal(i) {
                 ts
             } else {
@@ -304,7 +310,7 @@ fn handle_command(
                 .map(|a| AgentPosition {
                     vehicle_type: a.id.to_vehicle_type(),
                     pos: a.pos.to_gps(map.get_gps_bounds()),
-                    distance_crossed: sim.agent_properties(a.id).dist_crossed,
+                    distance_crossed: sim.agent_properties(map, a.id).dist_crossed,
                     person: a.person,
                 })
                 .collect(),
@@ -318,6 +324,31 @@ fn handle_command(
                 .map(|((r, a, hr), cnt)| (*r, *a, *hr, *cnt))
                 .collect(),
         })),
+        "/data/get-blocked-by-graph" => Ok(abstutil::to_json(&BlockedByGraph {
+            blocked_by: sim.get_blocked_by_graph(map),
+        })),
+        "/data/trip-time-lower-bound" => {
+            let id = TripID(get("id")?.parse::<usize>()?);
+            let duration = sim.get_trip_time_lower_bound(map, id)?;
+            Ok(duration.inner_seconds().to_string())
+        }
+        "/data/all-trip-time-lower-bounds" => {
+            let results: BTreeMap<TripID, Duration> = Timer::throwaway()
+                .parallelize(
+                    "calculate all trip time lower bounds",
+                    Parallelism::Fastest,
+                    sim.all_trip_info(),
+                    |(id, _)| {
+                        sim.get_trip_time_lower_bound(map, id)
+                            .ok()
+                            .map(|dt| (id, dt))
+                    },
+                )
+                .into_iter()
+                .flatten()
+                .collect();
+            Ok(abstutil::to_json(&results))
+        }
         // Controlling the map
         "/map/get-edits" => {
             let mut edits = map.get_edits().clone();
@@ -326,13 +357,13 @@ fn handle_command(
             Ok(abstutil::to_json(&edits.to_permanent(map)))
         }
         "/map/get-edit-road-command" => {
-            let r = RoadID(params["id"].parse::<usize>()?);
+            let r = RoadID(get("id")?.parse::<usize>()?);
             Ok(abstutil::to_json(
                 &map.edit_road_cmd(r, |_| {}).to_perma(map),
             ))
         }
         "/map/get-intersection-geometry" => {
-            let i = IntersectionID(params["id"].parse::<usize>()?);
+            let i = IntersectionID(get("id")?.parse::<usize>()?);
             Ok(abstutil::to_json(&export_geometry(map, i)))
         }
         "/map/get-all-geometry" => Ok(abstutil::to_json(&export_all_geometry(map))),
@@ -378,10 +409,15 @@ struct AgentPosition {
     /// The distance crossed so far by the agent, in meters. There are some caveats to this value:
     /// - The distance along driveways between buildings/parking lots and the road doesn't count
     ///   here.
-    /// - The distance will slightly exceed the true value if the agent begins or ends in the
-    ///   middle of a lane.
-    /// - The distance will not change while an agent is travelling along a lane; it'll only
-    ///   increment when they completely cross one step of their path.
+    /// - The distance only represents the current leg of the trip. If somebody walks to a car, the
+    ///   distance will reset when they begin driving, and also vehicle_type will change.
+    /// - No meaning for bus passengers currently.
+    /// - For buses and trains, the value will reset every time the vehicle reaches the next
+    ///   transit stop.
+    /// - The value might be slightly undercounted or overcounted if the path crosses into or out
+    ///   of an access-restricted or capped zone.
+    /// - At the very end of a driving trip, the agent may wind up crossing slightly more or less
+    ///   than the total path length, due to where they park along that last road.
     distance_crossed: Distance,
     /// None for buses
     person: Option<PersonID>,
@@ -402,6 +438,14 @@ struct TrafficSignalState {
     waiting: Vec<(AgentID, TurnID, Time)>,
 }
 
+#[derive(Serialize)]
+struct BlockedByGraph {
+    /// Each entry indicates that some agent has been stuck in one place for some amount of time,
+    /// due to being blocked by another agent or because they're waiting at an intersection.
+    #[serde(serialize_with = "serialize_btreemap")]
+    blocked_by: BTreeMap<AgentID, (Duration, DelayCause)>,
+}
+
 #[derive(Deserialize)]
 struct LoadSim {
     scenario: String,
@@ -416,7 +460,7 @@ struct LoadSim {
 
 impl LoadSim {
     fn setup(&self, timer: &mut Timer) -> (Map, Sim) {
-        let mut scenario: Scenario = abstutil::read_binary(self.scenario.clone(), timer);
+        let mut scenario: Scenario = abstutil::must_read_object(self.scenario.clone(), timer);
 
         let mut map = Map::new(scenario.map_name.path(), timer);
         if let Some(perma) = self.edits.clone() {

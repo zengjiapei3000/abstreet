@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use abstutil::MapName;
+use map_model::raw::RawMap;
 
 use crate::configuration::ImporterConfiguration;
 use crate::utils::{download, osmconvert};
@@ -14,6 +15,10 @@ use crate::utils::{download, osmconvert};
 pub struct GenericCityImporter {
     /// The URL to a .osm or .osm.pbf file containing the entire city.
     /// http://download.geofabrik.de/ is recommended.
+    ///
+    /// You can also put a path like `input/seattle/osm/washington-latest.osm.pbf` in here,
+    /// and instead that file will be used. This is kind of a hack, because it'll assume the cities
+    /// are imported in the proper order, but it prevents having to download duplicate large files.
     pub osm_url: String,
 
     pub map_config: map_model::MapConfig,
@@ -33,18 +38,23 @@ impl GenericCityImporter {
         name: MapName,
         timer: &mut abstutil::Timer,
         config: &ImporterConfiguration,
-    ) {
-        let local_osm_file = format!(
-            "input/{}/osm/{}",
-            name.city,
-            std::path::Path::new(&self.osm_url)
-                .file_name()
-                .unwrap()
-                .to_os_string()
-                .into_string()
-                .unwrap()
-        );
-        download(config, &local_osm_file, &self.osm_url);
+    ) -> RawMap {
+        let local_osm_file = if self.osm_url.starts_with("http") {
+            let file = format!(
+                "input/{}/osm/{}",
+                name.city,
+                std::path::Path::new(&self.osm_url)
+                    .file_name()
+                    .unwrap()
+                    .to_os_string()
+                    .into_string()
+                    .unwrap()
+            );
+            download(config, &file, &self.osm_url);
+            file
+        } else {
+            self.osm_url.clone()
+        };
 
         osmconvert(
             &local_osm_file,
@@ -69,5 +79,6 @@ impl GenericCityImporter {
             timer,
         );
         map.save();
+        map
     }
 }

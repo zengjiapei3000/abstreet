@@ -1,5 +1,6 @@
 use geom::{Distance, Pt2D};
 use sim::{TripEndpoint, TripID};
+use widgetry::table::Table;
 use widgetry::{
     Color, DrawBaselayer, EventCtx, GeomBatch, GfxCtx, Outcome, Panel, RewriteColor, ScreenPt,
     State,
@@ -8,26 +9,26 @@ use widgetry::{
 use crate::app::{App, Transition};
 use crate::common::color_for_trip_phase;
 use crate::info::{OpenTrip, Tab};
-use crate::sandbox::dashboards::table::Table;
 use crate::sandbox::dashboards::trip_table;
 use crate::sandbox::dashboards::DashTab;
 use crate::sandbox::SandboxMode;
 
-pub struct GenericTripTable<T, F, P: 'static + Fn(&mut EventCtx, &App, &Table<T, F>) -> Panel> {
-    table: Table<T, F>,
+pub struct GenericTripTable<T, F, P: 'static + Fn(&mut EventCtx, &App, &Table<App, T, F>) -> Panel>
+{
+    table: Table<App, T, F>,
     panel: Panel,
     make_panel: P,
     tab: DashTab,
 }
 
-impl<T: 'static, F: 'static, P: 'static + Fn(&mut EventCtx, &App, &Table<T, F>) -> Panel>
+impl<T: 'static, F: 'static, P: 'static + Fn(&mut EventCtx, &App, &Table<App, T, F>) -> Panel>
     GenericTripTable<T, F, P>
 {
     pub fn new(
         ctx: &mut EventCtx,
         app: &App,
         tab: DashTab,
-        table: Table<T, F>,
+        table: Table<App, T, F>,
         make_panel: P,
     ) -> Box<dyn State<App>> {
         let panel = (make_panel)(ctx, app, &table);
@@ -46,8 +47,8 @@ impl<T: 'static, F: 'static, P: 'static + Fn(&mut EventCtx, &App, &Table<T, F>) 
     }
 }
 
-impl<T: 'static, F: 'static, P: 'static + Fn(&mut EventCtx, &App, &Table<T, F>) -> Panel> State<App>
-    for GenericTripTable<T, F, P>
+impl<T: 'static, F: 'static, P: 'static + Fn(&mut EventCtx, &App, &Table<App, T, F>) -> Panel>
+    State<App> for GenericTripTable<T, F, P>
 {
     fn event(&mut self, ctx: &mut EventCtx, app: &mut App) -> Transition {
         match self.panel.event(ctx) {
@@ -56,7 +57,7 @@ impl<T: 'static, F: 'static, P: 'static + Fn(&mut EventCtx, &App, &Table<T, F>) 
                     self.recalc(ctx, app);
                 } else if let Ok(idx) = x.parse::<usize>() {
                     let trip = TripID(idx);
-                    let person = app.primary.sim.trip_to_person(trip);
+                    let person = app.primary.sim.trip_to_person(trip).unwrap();
                     return Transition::Multi(vec![
                         Transition::Pop,
                         Transition::ModifyState(Box::new(move |state, ctx, app| {
@@ -146,8 +147,8 @@ fn preview_route(g: &mut GfxCtx, app: &App, id: TripID) -> GeomBatch {
         .get_analytics()
         .get_trip_phases(id, &app.primary.map)
     {
-        if let Some((dist, ref path)) = p.path {
-            if let Some(trace) = path.trace(&app.primary.map, dist, None) {
+        if let Some(path) = &p.path {
+            if let Some(trace) = path.trace(&app.primary.map) {
                 batch.push(
                     color_for_trip_phase(app, p.phase_type),
                     trace.make_polygons(Distance::meters(20.0)),
@@ -158,7 +159,7 @@ fn preview_route(g: &mut GfxCtx, app: &App, id: TripID) -> GeomBatch {
 
     let trip = app.primary.sim.trip_info(id);
     batch.append(
-        GeomBatch::load_svg(g.prerender, "system/assets/timeline/start_pos.svg")
+        GeomBatch::load_svg(g, "system/assets/timeline/start_pos.svg")
             .scale(10.0)
             .color(RewriteColor::Change(Color::WHITE, Color::BLACK))
             .color(RewriteColor::Change(
@@ -172,7 +173,7 @@ fn preview_route(g: &mut GfxCtx, app: &App, id: TripID) -> GeomBatch {
             }),
     );
     batch.append(
-        GeomBatch::load_svg(g.prerender, "system/assets/timeline/goal_pos.svg")
+        GeomBatch::load_svg(g, "system/assets/timeline/goal_pos.svg")
             .scale(10.0)
             .color(RewriteColor::Change(Color::WHITE, Color::BLACK))
             .color(RewriteColor::Change(

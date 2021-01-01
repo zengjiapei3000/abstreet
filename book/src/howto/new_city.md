@@ -19,7 +19,7 @@ available to other users yet.
   `import.sh` directly, changing the `$@` at the end to `--oneshot=map.osm` or
   whatever arguments you're passing in.
 
-The oneshot importer will will generate a new file in `data/system/oneshot/maps`
+The oneshot importer will generate a new file in `data/system/oneshot/maps`
 that you can then load in the game. If you have an Osmosis polygon filter (see
 below), you can also pass `--oneshot_clip=clip.poly` to improve the result. You
 should first make sure your .osm has been clipped:
@@ -77,7 +77,9 @@ use it as well.
 
 6.  Run it: `./import.sh --city=your_city --raw --map`
 
-7.  Update `.gitignore`, following `tel_aviv` as an example.
+7.  Update `.gitignore` and `data/regen.sh`, following `tel_aviv` as an example.
+
+8.  Fill out `nice_map_name` in `map_gui/src/tools/mod.rs`.
 
 Send a PR with your changes! I'll generate everything and make it work with
 `updater`, so most people don't have to build everything from scratch.
@@ -104,4 +106,4 @@ resources for fixing OSM:
 
 - <https://learnosm.org>
 - <https://wiki.openstreetmap.org/wiki/StreetComplete>
-- [Mapping parking](map_parking.md)
+- [Mapping parking](../side_projects/parking_mapper.md)

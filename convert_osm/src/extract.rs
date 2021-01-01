@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use osm::{NodeID, OsmID, RelationID, WayID};
 
@@ -27,6 +27,19 @@ pub struct OsmExtract {
 
 pub fn extract_osm(map: &mut RawMap, opts: &Options, timer: &mut Timer) -> OsmExtract {
     let mut doc = crate::reader::read(&opts.osm_input, &map.gps_bounds, timer).unwrap();
+
+    // Use this to quickly test overrides to some ways before upstreaming in OSM.
+    if false {
+        let ways: BTreeSet<WayID> = abstutil::read_json("osm_ways.json".to_string(), timer);
+        for id in ways {
+            doc.ways
+                .get_mut(&id)
+                .unwrap()
+                .tags
+                .insert("junction", "intersection");
+        }
+    }
+
     if opts.clip.is_none() {
         // Use the boundary from .osm.
         map.gps_bounds = doc.gps_bounds.clone();
@@ -478,7 +491,7 @@ fn is_road(tags: &mut Tags, opts: &Options) -> bool {
     if !tags.contains_key(osm::SIDEWALK) && opts.map_config.inferred_sidewalks {
         tags.insert(osm::INFERRED_SIDEWALKS, "true");
         if tags.is_any(osm::HIGHWAY, vec!["motorway", "motorway_link"])
-            || tags.is("junction", "roundabout")
+            || tags.is_any("junction", vec!["intersection", "roundabout"])
             || tags.is("foot", "no")
             || tags.is(osm::HIGHWAY, "service")
         {

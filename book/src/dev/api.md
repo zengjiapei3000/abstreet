@@ -83,6 +83,14 @@ are missing, etc. A summary of the commands available so far:
     Vehicle type (or pedestrian), person ID, and position is included.
   - **GET /data/get-road-thruput**: Returns a JSON list of (road, agent type,
     hour since midnight, throughput for that one hour period).
+  - **GET /data/get-blocked-by-graph**: Returns a mapping from agent IDs to how
+    long they've been waiting and why they're blocked.
+  - **GET /data/trip-time-lower-bound?id=123**: Returns a reasonable lower bound
+    for the total duration of trip 123, in seconds. The time is calculated
+    assuming no delay at intersections, travelling full speed along every road,
+    and using the primary mode for the entire trip (so just driving).
+  - **GET /data/all-trip-time-lower-bounds**: The faster equivalent of calling
+    `/data/trip-time-lower-bound` for every trip in the simulation.
 - **/map**
   - **GET /map/get-edits**: Returns the current map edits in JSON. You can save
     this to a file in `data/player/edits/city_name/map_name/` and later use it

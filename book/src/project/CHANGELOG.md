@@ -667,3 +667,29 @@ changes here.
 - misc bug fixes and other refactoring, focused on GUI code mostly
 - most of a prototype done for an experiment
 - map added for north seattle
+
+0.2.22
+
+- vehicles will lane-change less erratically during uber-turns (sequences of turns through multiple traffic signals close together)
+- debug mode has a "blocked-by graph" tool to understand dependencies between waiting agents
+- try multiple OpenGL video mode options if the first choice fails (thanks Michael!)
+- refactoring trip starting code and the minimap
+- non-Latin fonts now supported on web too, thanks to rustybuzz release
+- new small maps in Seattle included in the release, and NYC added to optional cities
+- saving some player state on the web (mostly camera position per map, for the main game)
+- partial prototype of a new census-based scenario generator, thanks to help from the Amazon SSPA hackathon
+- significant progress on the experiment, about one week left...
+
+0.2.23
+
+- released the 15-minute Santa experiment!
+- trip info panels now show more continuous progress along a route
+- fixing inactive buttons stretching too much
+
+0.2.24
+
+- variable traffic signal timing, thanks to Bruce
+- 15 min explorer: more walking options (require shoulders, change speed), more organized business search
+- 15 min santa: remember upzoning choices
+- misc bugfixes and refactoring
+- 2021 roadmap drafted

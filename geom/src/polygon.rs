@@ -2,13 +2,14 @@ use std::convert::TryFrom;
 use std::fmt;
 
 use geo::algorithm::area::Area;
+use geo::algorithm::concave_hull::ConcaveHull;
 use geo::algorithm::convex_hull::ConvexHull;
 use geo_booleanop::boolean::BooleanOp;
 use serde::{Deserialize, Serialize};
 
 use crate::{Angle, Bounds, Distance, HashablePt2D, PolyLine, Pt2D, Ring};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(PartialEq, Serialize, Deserialize, Clone, Debug)]
 pub struct Polygon {
     points: Vec<Pt2D>,
     /// Groups of three indices make up the triangles
@@ -231,11 +232,12 @@ impl Polygon {
     }
 
     /// Top-left at the origin. Doesn't take Distance, because this is usually pixels, actually.
-    /// If radius is None, be as round as possible
-    pub fn rounded_rectangle(w: f64, h: f64, r: Option<f64>) -> Polygon {
+    /// If radius is None, be as round as possible. Fails if the radius is too big.
+    pub fn maybe_rounded_rectangle(w: f64, h: f64, r: Option<f64>) -> Option<Polygon> {
         let r = r.unwrap_or_else(|| w.min(h) / 2.0);
-        assert!(2.0 * r <= w);
-        assert!(2.0 * r <= h);
+        if 2.0 * r > w || 2.0 * r > h {
+            return None;
+        }
 
         let mut pts = vec![];
 
@@ -263,7 +265,13 @@ impl Polygon {
         // If the radius was maximized, then some of the edges will be zero length.
         pts.dedup();
 
-        Ring::must_new(pts).to_polygon()
+        Some(Ring::must_new(pts).to_polygon())
+    }
+
+    /// Top-left at the origin. Doesn't take Distance, because this is usually pixels, actually.
+    /// If radius is None, be as round as possible
+    pub fn rounded_rectangle(w: f64, h: f64, r: Option<f64>) -> Polygon {
+        Polygon::maybe_rounded_rectangle(w, h, r).unwrap()
     }
 
     // TODO Result won't be a nice Ring
@@ -297,7 +305,12 @@ impl Polygon {
 
     pub fn convex_hull(list: Vec<Polygon>) -> Polygon {
         let mp: geo::MultiPolygon<f64> = list.into_iter().map(|p| to_geo(p.points())).collect();
-        from_geo(mp.convex_hull())
+        mp.convex_hull().into()
+    }
+
+    pub fn concave_hull(list: Vec<Polygon>, concavity: f64) -> Polygon {
+        let mp: geo::MultiPolygon<f64> = list.into_iter().map(|p| to_geo(p.points())).collect();
+        mp.concave_hull(concavity).into()
     }
 
     pub fn polylabel(&self) -> Pt2D {
@@ -469,19 +482,51 @@ fn to_geo(pts: &Vec<Pt2D>) -> geo::Polygon<f64> {
     )
 }
 
-fn from_geo(p: geo::Polygon<f64>) -> Polygon {
-    Polygon::buggy_new(
-        p.into_inner()
-            .0
-            .into_points()
-            .into_iter()
-            .map(|pt| Pt2D::new(pt.x(), pt.y()))
-            .collect(),
-    )
+impl From<geo::Polygon<f64>> for Polygon {
+    fn from(poly: geo::Polygon<f64>) -> Self {
+        let (exterior, interiors) = poly.into_inner();
+        Polygon::with_holes(
+            Ring::from(exterior),
+            interiors.into_iter().map(Ring::from).collect(),
+        )
+    }
+}
+
+impl From<Polygon> for geo::Polygon<f64> {
+    fn from(poly: Polygon) -> Self {
+        if let Some(mut rings) = poly.rings {
+            let exterior = rings.pop().expect("expected poly.rings[0] to be exterior");
+            let interiors: Vec<geo::LineString<f64>> =
+                rings.into_iter().map(geo::LineString::from).collect();
+            Self::new(exterior.into(), interiors)
+        } else {
+            let exterior_coords = poly
+                .points
+                .into_iter()
+                .map(geo::Coordinate::from)
+                .collect::<Vec<_>>();
+            let exterior = geo::LineString(exterior_coords);
+            Self::new(exterior, Vec::new())
+        }
+    }
 }
 
 fn from_multi(multi: geo::MultiPolygon<f64>) -> Vec<Polygon> {
-    multi.into_iter().map(from_geo).collect()
+    // TODO This should just call Polygon::from, but while importing maps, it seems like
+    // intersection() is hitting non-Ring cases that crash. So keep using buggy_new for now.
+    multi
+        .into_iter()
+        .map(|p| {
+            let pts = p
+                .into_inner()
+                .0
+                .into_points()
+                .into_iter()
+                .map(|pt| Pt2D::new(pt.x(), pt.y()))
+                .collect();
+            Polygon::buggy_new(pts)
+        })
+        .collect()
 }
 
 fn downsize(input: Vec<usize>) -> Vec<u16> {
