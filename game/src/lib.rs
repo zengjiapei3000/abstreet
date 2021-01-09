@@ -1,4 +1,6 @@
 #[macro_use]
+extern crate anyhow;
+#[macro_use]
 extern crate log;
 
 use abstutil::CmdArgs;
@@ -37,15 +39,16 @@ pub fn main() {
         opts.toggle_day_night_colors = true;
         opts.color_scheme = map_gui::colors::ColorSchemeChoice::NightMode;
     }
-    let mut settings = widgetry::Settings::new("A/B Street");
-    settings.window_icon(abstutil::path("system/assets/pregame/icon.png"));
+    let mut settings = widgetry::Settings::new("A/B Street")
+        .read_svg(Box::new(abstio::slurp_bytes))
+        .window_icon(abstio::path("system/assets/pregame/icon.png"))
+        .loading_tips(map_gui::tools::loading_tips());
     if args.enabled("--dump_raw_events") {
-        settings.dump_raw_events();
+        settings = settings.dump_raw_events();
     }
     if let Some(s) = args.optional_parse("--scale_factor", |s| s.parse::<f64>()) {
-        settings.scale_factor(s);
+        settings = settings.scale_factor(s);
     }
-    settings.loading_tips(map_gui::tools::loading_tips());
 
     let mut mode = None;
     let mut initialize_tutorial = false;
@@ -78,7 +81,7 @@ pub fn main() {
     let modifiers = flags.sim_flags.modifiers.drain(..).collect();
 
     if mode.is_none() && flags.sim_flags.load.contains("scenarios/") {
-        let (map_name, scenario) = abstutil::parse_scenario_path(&flags.sim_flags.load);
+        let (map_name, scenario) = abstio::parse_scenario_path(&flags.sim_flags.load);
         flags.sim_flags.load = map_name.path();
         mode = Some(sandbox::GameplayMode::PlayScenario(
             map_name, scenario, modifiers,
@@ -135,7 +138,7 @@ fn setup_app(
         let mut timer = abstutil::Timer::new("apply initial edits");
         let edits = map_model::MapEdits::load(
             &app.primary.map,
-            abstutil::path_edits(app.primary.map.get_name(), &edits_name),
+            abstio::path_edits(app.primary.map.get_name(), &edits_name),
             &mut timer,
         )
         .unwrap();

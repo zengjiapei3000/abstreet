@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::TryFrom;
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use abstutil::{deserialize_btreemap, retain_btreeset, serialize_btreemap, Timer};
 use geom::{Distance, Duration, Speed};
 
 use crate::make::traffic_signals::{brute_force, get_possible_policies};
-use crate::objects::traffic_signals::PhaseType::{Adaptive, Fixed, Variable};
 use crate::raw::OriginalRoad;
 use crate::{
     osm, CompressedMovementID, DirectedRoadID, Direction, IntersectionID, Map, Movement,
@@ -40,28 +40,24 @@ pub struct Stage {
     pub yield_movements: BTreeSet<MovementID>,
     // TODO Not renaming this, because this is going to change radically in
     // https://github.com/dabreegster/abstreet/pull/298 anyway
-    pub phase_type: PhaseType,
+    pub stage_type: StageType,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum PhaseType {
+pub enum StageType {
     Fixed(Duration),
-    /// Same as fixed, but when this stage would normally end, if there's still incoming demand,
-    /// repeat the stage entirely.
-    // TODO This is a silly policy, but a start towards variable timers.
-    Adaptive(Duration),
     /// Minimum is the minimum duration, 0 allows cycle to be skipped if no demand.
     /// Delay is the elapsed time with no demand that ends a cycle.
     /// Additional is the additional duration for an extended cycle.
     Variable(Duration, Duration, Duration),
 }
 
-impl PhaseType {
+impl StageType {
     // TODO Maybe don't have this; force callers to acknowledge different policies
     pub fn simple_duration(&self) -> Duration {
         match self {
-            PhaseType::Fixed(d) | PhaseType::Adaptive(d) => *d,
-            PhaseType::Variable(duration, delay, _) => {
+            StageType::Fixed(d) => *d,
+            StageType::Variable(duration, delay, _) => {
                 if *duration > Duration::ZERO {
                     *duration
                 } else {
@@ -74,7 +70,7 @@ impl PhaseType {
 
 impl ControlTrafficSignal {
     pub fn new(map: &Map, id: IntersectionID, timer: &mut Timer) -> ControlTrafficSignal {
-        let mut policies = ControlTrafficSignal::get_possible_policies(map, id, timer);
+        let mut policies = ControlTrafficSignal::get_possible_policies(map, id);
         if policies.len() == 1 {
             timer.warn(format!("Falling back to greedy_assignment for {}", id));
         }
@@ -84,9 +80,8 @@ impl ControlTrafficSignal {
     pub fn get_possible_policies(
         map: &Map,
         id: IntersectionID,
-        timer: &mut Timer,
     ) -> Vec<(String, ControlTrafficSignal)> {
-        get_possible_policies(map, id, timer)
+        get_possible_policies(map, id)
     }
     // TODO tmp
     pub fn brute_force(map: &Map, id: IntersectionID) {
@@ -107,7 +102,7 @@ impl ControlTrafficSignal {
         Duration::seconds(time.inner_seconds().ceil())
     }
 
-    pub(crate) fn validate(&self) -> Result<(), String> {
+    pub(crate) fn validate(&self) -> Result<()> {
         // Does the assignment cover the correct set of movements?
         let expected_movements: BTreeSet<MovementID> = self.movements.keys().cloned().collect();
         let mut actual_movements: BTreeSet<MovementID> = BTreeSet::new();
@@ -116,7 +111,7 @@ impl ControlTrafficSignal {
             actual_movements.extend(stage.yield_movements.iter());
         }
         if expected_movements != actual_movements {
-            return Err(format!(
+            bail!(
                 "Traffic signal assignment for {} broken. Missing {:?}, contains irrelevant {:?}",
                 self.id,
                 expected_movements
@@ -127,7 +122,7 @@ impl ControlTrafficSignal {
                     .difference(&expected_movements)
                     .cloned()
                     .collect::<Vec<_>>()
-            ));
+            );
         }
         let mut stage_index = 0;
         for stage in &self.stages {
@@ -135,11 +130,12 @@ impl ControlTrafficSignal {
             for m1 in stage.protected_movements.iter().map(|m| &self.movements[m]) {
                 for m2 in stage.protected_movements.iter().map(|m| &self.movements[m]) {
                     if m1.conflicts_with(m2) {
-                        return Err(format!(
+                        bail!(
                             "Traffic signal has conflicting protected movements in one \
                              stage:\n{:?}\n\n{:?}",
-                            m1, m2
-                        ));
+                            m1,
+                            m2
+                        );
                     }
                 }
             }
@@ -150,15 +146,15 @@ impl ControlTrafficSignal {
             }
             // Is there enough time in each stage to walk across the crosswalk
             let min_crossing_time = self.get_min_crossing_time(stage_index);
-            if stage.phase_type.simple_duration() < min_crossing_time {
-                return Err(format!(
+            if stage.stage_type.simple_duration() < min_crossing_time {
+                bail!(
                     "Traffic signal does not allow enough time in stage to complete the \
                      crosswalk\nStage Index{}\nStage : {:?}\nTime Required: {}\nTime Given: {}",
                     stage_index,
                     stage,
                     min_crossing_time,
-                    stage.phase_type.simple_duration()
-                ));
+                    stage.stage_type.simple_duration()
+                );
             }
             stage_index += 1;
         }
@@ -250,7 +246,7 @@ impl ControlTrafficSignal {
     pub fn simple_cycle_duration(&self) -> Duration {
         let mut total = Duration::ZERO;
         for s in &self.stages {
-            total += s.phase_type.simple_duration();
+            total += s.stage_type.simple_duration();
         }
         total
     }
@@ -262,7 +258,7 @@ impl Stage {
             protected_movements: BTreeSet::new(),
             yield_movements: BTreeSet::new(),
             // TODO Set a default
-            phase_type: PhaseType::Fixed(Duration::seconds(30.0)),
+            stage_type: StageType::Fixed(Duration::seconds(30.0)),
         }
     }
 
@@ -322,11 +318,12 @@ impl Stage {
                 .inner_seconds()
                 .ceil(),
         );
-        if time > self.phase_type.simple_duration() {
-            self.phase_type = match self.phase_type {
-                PhaseType::Adaptive(_) => Adaptive(time),
-                PhaseType::Fixed(_) => Fixed(time),
-                PhaseType::Variable(_, delay, additional) => Variable(time, delay, additional),
+        if time > self.stage_type.simple_duration() {
+            self.stage_type = match self.stage_type {
+                StageType::Fixed(_) => StageType::Fixed(time),
+                StageType::Variable(_, delay, additional) => {
+                    StageType::Variable(time, delay, additional)
+                }
             };
         }
     }
@@ -336,10 +333,10 @@ impl ControlTrafficSignal {
     pub fn export(&self, map: &Map) -> traffic_signal_data::TrafficSignal {
         traffic_signal_data::TrafficSignal {
             intersection_osm_node_id: map.get_i(self.id).orig_id.0,
-            phases: self
+            stages: self
                 .stages
                 .iter()
-                .map(|s| traffic_signal_data::Phase {
+                .map(|s| traffic_signal_data::Stage {
                     protected_turns: s
                         .protected_movements
                         .iter()
@@ -350,15 +347,12 @@ impl ControlTrafficSignal {
                         .iter()
                         .map(|t| export_movement(t, map))
                         .collect(),
-                    phase_type: match s.phase_type {
-                        PhaseType::Fixed(d) => {
-                            traffic_signal_data::PhaseType::Fixed(d.inner_seconds() as usize)
+                    stage_type: match s.stage_type {
+                        StageType::Fixed(d) => {
+                            traffic_signal_data::StageType::Fixed(d.inner_seconds() as usize)
                         }
-                        PhaseType::Adaptive(d) => {
-                            traffic_signal_data::PhaseType::Adaptive(d.inner_seconds() as usize)
-                        }
-                        PhaseType::Variable(min, delay, additional) => {
-                            traffic_signal_data::PhaseType::Variable(
+                        StageType::Variable(min, delay, additional) => {
+                            traffic_signal_data::StageType::Variable(
                                 min.inner_seconds() as usize,
                                 delay.inner_seconds() as usize,
                                 additional.inner_seconds() as usize,
@@ -375,9 +369,9 @@ impl ControlTrafficSignal {
         raw: traffic_signal_data::TrafficSignal,
         id: IntersectionID,
         map: &Map,
-    ) -> Result<ControlTrafficSignal, String> {
+    ) -> Result<ControlTrafficSignal> {
         let mut stages = Vec::new();
-        for s in raw.phases {
+        for s in raw.stages {
             let mut errors = Vec::new();
             let mut protected_movements = BTreeSet::new();
             for t in s.protected_turns {
@@ -386,7 +380,7 @@ impl ControlTrafficSignal {
                         protected_movements.insert(mvmnt);
                     }
                     Err(err) => {
-                        errors.push(err);
+                        errors.push(err.to_string());
                     }
                 }
             }
@@ -397,7 +391,7 @@ impl ControlTrafficSignal {
                         permitted_movements.insert(mvmnt);
                     }
                     Err(err) => {
-                        errors.push(err);
+                        errors.push(err.to_string());
                     }
                 }
             }
@@ -405,15 +399,12 @@ impl ControlTrafficSignal {
                 stages.push(Stage {
                     protected_movements,
                     yield_movements: permitted_movements,
-                    phase_type: match s.phase_type {
-                        traffic_signal_data::PhaseType::Fixed(d) => {
-                            PhaseType::Fixed(Duration::seconds(d as f64))
+                    stage_type: match s.stage_type {
+                        traffic_signal_data::StageType::Fixed(d) => {
+                            StageType::Fixed(Duration::seconds(d as f64))
                         }
-                        traffic_signal_data::PhaseType::Adaptive(d) => {
-                            PhaseType::Adaptive(Duration::seconds(d as f64))
-                        }
-                        traffic_signal_data::PhaseType::Variable(min, delay, additional) => {
-                            PhaseType::Variable(
+                        traffic_signal_data::StageType::Variable(min, delay, additional) => {
+                            StageType::Variable(
                                 Duration::seconds(min as f64),
                                 Duration::seconds(delay as f64),
                                 Duration::seconds(additional as f64),
@@ -422,7 +413,7 @@ impl ControlTrafficSignal {
                     },
                 });
             } else {
-                return Err(errors.join("; "));
+                bail!("{}", errors.join("; "));
             }
         }
         let ts = ControlTrafficSignal {
@@ -458,7 +449,7 @@ fn export_movement(id: &MovementID, map: &Map) -> traffic_signal_data::Turn {
     }
 }
 
-fn import_movement(id: traffic_signal_data::Turn, map: &Map) -> Result<MovementID, String> {
+fn import_movement(id: traffic_signal_data::Turn, map: &Map) -> Result<MovementID> {
     Ok(MovementID {
         from: find_r(id.from, map)?,
         to: find_r(id.to, map)?,
@@ -467,7 +458,7 @@ fn import_movement(id: traffic_signal_data::Turn, map: &Map) -> Result<MovementI
     })
 }
 
-fn find_r(id: traffic_signal_data::DirectedRoad, map: &Map) -> Result<DirectedRoadID, String> {
+fn find_r(id: traffic_signal_data::DirectedRoad, map: &Map) -> Result<DirectedRoadID> {
     Ok(DirectedRoadID {
         id: map.find_r_by_osm_id(OriginalRoad::new(
             id.osm_way_id,

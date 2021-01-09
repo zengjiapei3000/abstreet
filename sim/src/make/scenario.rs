@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::fmt;
 
+use anyhow::Result;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rand_xorshift::XorShiftRng;
 use serde::{Deserialize, Serialize};
 
-use abstutil::{prettyprint_usize, Counter, MapName, Parallelism, Timer};
+use abstio::MapName;
+use abstutil::{prettyprint_usize, Counter, Parallelism, Timer};
 use geom::{Distance, Speed, Time};
 use map_model::{BuildingID, Map, OffstreetParking, RoadID};
 
@@ -171,7 +173,7 @@ impl Scenario {
                     Ok(spec) => spec,
                     Err(error) => TripSpec::SpawningFailure {
                         use_vehicle: maybe_idx.map(|idx| person.vehicles[idx].id),
-                        error,
+                        error: error.to_string(),
                     },
                 };
                 schedule_trips.push((
@@ -212,8 +214,8 @@ impl Scenario {
     }
 
     pub fn save(&self) {
-        abstutil::write_binary(
-            abstutil::path_scenario(&self.map_name, &self.scenario_name),
+        abstio::write_binary(
+            abstio::path_scenario(&self.map_name, &self.scenario_name),
             self,
         );
     }
@@ -254,15 +256,14 @@ impl Scenario {
 
     pub fn rand_dist(rng: &mut XorShiftRng, low: Distance, high: Distance) -> Distance {
         assert!(high > low);
-        Distance::meters(rng.gen_range(low.inner_meters(), high.inner_meters()))
+        Distance::meters(rng.gen_range(low.inner_meters()..high.inner_meters()))
     }
 
     fn rand_speed(rng: &mut XorShiftRng, low: Speed, high: Speed) -> Speed {
         assert!(high > low);
-        Speed::meters_per_second(rng.gen_range(
-            low.inner_meters_per_second(),
-            high.inner_meters_per_second(),
-        ))
+        Speed::meters_per_second(
+            rng.gen_range(low.inner_meters_per_second()..high.inner_meters_per_second()),
+        )
     }
 
     pub fn rand_ped_speed(rng: &mut XorShiftRng) -> Speed {
@@ -424,13 +425,15 @@ fn find_spot_near_building(
 
 impl PersonSpec {
     /// Verify that a person's trips make sense
-    fn check_schedule(&self) -> Result<(), String> {
+    fn check_schedule(&self) -> Result<()> {
         for pair in self.trips.windows(2) {
             if pair[0].depart >= pair[1].depart {
-                return Err(format!(
+                bail!(
                     "Person ({:?}) starts two trips in the wrong order: {} then {}",
-                    self.orig_id, pair[0].depart, pair[1].depart
-                ));
+                    self.orig_id,
+                    pair[0].depart,
+                    pair[1].depart
+                );
             }
         }
 
@@ -440,10 +443,11 @@ impl PersonSpec {
         }
         for pair in endpts.windows(2) {
             if pair[0] == pair[1] {
-                return Err(format!(
+                bail!(
                     "Person ({:?}) has two adjacent trips between the same place: {:?}",
-                    self.orig_id, pair[0]
-                ));
+                    self.orig_id,
+                    pair[0]
+                );
             }
         }
 

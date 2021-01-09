@@ -1,41 +1,34 @@
 use std::collections::HashSet;
 
-use abstutil::Timer;
 use geom::Duration;
 
 use crate::{
-    ControlTrafficSignal, IntersectionCluster, IntersectionID, Map, Movement, MovementID,
-    PhaseType, RoadID, Stage, TurnPriority, TurnType,
+    ControlTrafficSignal, IntersectionCluster, IntersectionID, Map, Movement, MovementID, RoadID,
+    Stage, StageType, TurnPriority, TurnType,
 };
 
 /// Applies a bunch of heuristics to a single intersection, returning the valid results in
 /// best-first order. The signal configuration is only based on the roads connected to the
 /// intersection.
-pub fn get_possible_policies(
-    map: &Map,
-    id: IntersectionID,
-    timer: &mut Timer,
-) -> Vec<(String, ControlTrafficSignal)> {
+pub fn get_possible_policies(map: &Map, id: IntersectionID) -> Vec<(String, ControlTrafficSignal)> {
     let mut results = Vec::new();
 
-    // TODO Cache with lazy_static. Don't serialize in Map; the repo of signal data may evolve
-    // independently.
     if let Some(raw) = traffic_signal_data::load_all_data()
         .unwrap()
         .remove(&map.get_i(id).orig_id.0)
     {
         match ControlTrafficSignal::import(raw, id, map) {
             Ok(ts) => {
-                results.push(("hand-mapped current real settings".to_string(), ts));
+                results.push(("manually specified settings".to_string(), ts));
             }
             Err(err) => {
                 let i = map.get_i(id);
-                timer.error(format!(
+                panic!(
                     "traffic_signal_data data for {} ({}) out of date, go update it: {}",
                     i.orig_id,
                     i.name(None, map),
                     err
-                ));
+                );
             }
         }
     }
@@ -157,8 +150,8 @@ fn half_signal(map: &Map, i: IntersectionID) -> Option<ControlTrafficSignal> {
             vehicle_stage.edit_movement(movement, TurnPriority::Protected);
         }
     }
-    vehicle_stage.phase_type = PhaseType::Fixed(Duration::minutes(1));
-    ped_stage.phase_type = PhaseType::Fixed(Duration::seconds(10.0));
+    vehicle_stage.stage_type = StageType::Fixed(Duration::minutes(1));
+    ped_stage.stage_type = StageType::Fixed(Duration::seconds(10.0));
 
     ts.stages = vec![vehicle_stage, ped_stage];
     Some(ts)

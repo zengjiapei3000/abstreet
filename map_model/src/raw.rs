@@ -5,10 +5,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use anyhow::Result;
 use petgraph::graphmap::DiGraphMap;
 use serde::{Deserialize, Serialize};
 
-use abstutil::{deserialize_btreemap, serialize_btreemap, MapName, Tags, Timer};
+use abstio::MapName;
+use abstutil::{deserialize_btreemap, serialize_btreemap, Tags, Timer};
 use geom::{Circle, Distance, GPSBounds, PolyLine, Polygon, Pt2D};
 
 use crate::make::initial::lane_specs::get_lane_specs_ltr;
@@ -185,7 +187,7 @@ impl RawMap {
     }
 
     pub fn save(&self) {
-        abstutil::write_binary(abstutil::path_raw_map(&self.name), self)
+        abstio::write_binary(abstio::path_raw_map(&self.name), self)
     }
 }
 
@@ -252,15 +254,12 @@ impl RawMap {
     pub fn merge_short_road(
         &mut self,
         short: OriginalRoad,
-    ) -> Result<
-        (
-            osm::NodeID,
-            osm::NodeID,
-            Vec<OriginalRoad>,
-            Vec<OriginalRoad>,
-        ),
-        String,
-    > {
+    ) -> Result<(
+        osm::NodeID,
+        osm::NodeID,
+        Vec<OriginalRoad>,
+        Vec<OriginalRoad>,
+    )> {
         // First a sanity check.
         {
             let i1 = &self.intersections[&short.i1];
@@ -268,7 +267,7 @@ impl RawMap {
             if i1.intersection_type == IntersectionType::Border
                 || i2.intersection_type == IntersectionType::Border
             {
-                return Err(format!("{} touches a border", short));
+                bail!("{} touches a border", short);
             }
         }
 
@@ -283,7 +282,7 @@ impl RawMap {
 
         let (i1, i2) = (short.i1, short.i2);
         if i1 == i2 {
-            return Err(format!("Can't merge {} -- it's a loop on {}", short, i1));
+            bail!("Can't merge {} -- it's a loop on {}", short, i1);
         }
         let i1_pt = self.intersections[&i1].point;
 

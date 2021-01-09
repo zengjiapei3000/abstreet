@@ -6,7 +6,7 @@ use map_gui::options::TrafficSignalStyle;
 use map_gui::render::{traffic_signal, DrawMovement, DrawOptions};
 use map_gui::tools::PopupMsg;
 use map_model::{
-    ControlTrafficSignal, EditCmd, EditIntersection, IntersectionID, MovementID, PhaseType, Stage,
+    ControlTrafficSignal, EditCmd, EditIntersection, IntersectionID, MovementID, Stage, StageType,
     TurnPriority,
 };
 use widgetry::{
@@ -331,7 +331,7 @@ impl State<App> for TrafficSignalEditor {
                 "Export" => {
                     for signal in BundleEdits::get_current(app, &self.members).signals {
                         let ts = signal.export(&app.primary.map);
-                        abstutil::write_json(
+                        abstio::write_json(
                             format!("traffic_signal_data/{}.json", ts.intersection_osm_node_id),
                             &ts,
                         );
@@ -600,7 +600,7 @@ fn make_side_panel(
     let mut col = vec![txt.draw(ctx)];
     col.push(Widget::horiz_separator(ctx, 0.2));
 
-    // TODO Say "normally" to account for adaptive stages?
+    // TODO Say "normally" to account for variable stages?
     col.push(
         format!(
             "One full cycle lasts {}",
@@ -641,10 +641,9 @@ fn make_side_panel(
             .centered_vert(),
             Widget::col(vec![
                 Widget::row(vec![
-                    match canonical_stage.phase_type {
-                        PhaseType::Fixed(d) => format!("Stage {}: {}", idx + 1, d),
-                        PhaseType::Adaptive(d) => format!("Stage {}: {} (adaptive)", idx + 1, d),
-                        PhaseType::Variable(min, delay, additional) => format!(
+                    match canonical_stage.stage_type {
+                        StageType::Fixed(d) => format!("Stage {}: {}", idx + 1, d),
+                        StageType::Variable(min, delay, additional) => format!(
                             "Stage {}: {}, {}, {} (variable)",
                             idx + 1,
                             min,
@@ -742,7 +741,7 @@ impl BundleEdits {
                 if signal.stages.len() == idx {
                     signal.stages.push(Stage::new());
                 }
-                signal.stages[idx].phase_type = canonical_stage.phase_type.clone();
+                signal.stages[idx].stage_type = canonical_stage.stage_type.clone();
             }
             signals.push(signal);
         }

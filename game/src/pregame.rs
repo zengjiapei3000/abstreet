@@ -174,7 +174,7 @@ impl State<App> for MainMenu {
                     return Tutorial::start(ctx, app);
                 }
                 "Sandbox mode" => {
-                    let scenario = if abstutil::file_exists(abstutil::path_scenario(
+                    let scenario = if abstio::file_exists(abstio::path_scenario(
                         app.primary.map.get_name(),
                         "weekday",
                     )) {
@@ -320,7 +320,7 @@ impl Proposals {
         // are under version control, much more likely to notice when they break (or we could add a
         // step to data/regen.sh).
         for (name, edits) in
-            abstutil::load_all_objects::<PermanentMapEdits>(abstutil::path("system/proposals"))
+            abstio::load_all_objects::<PermanentMapEdits>(abstio::path("system/proposals"))
         {
             if current == Some(name.clone()) {
                 let mut txt = Text::new();
@@ -348,7 +348,7 @@ impl Proposals {
             } else {
                 buttons.push(
                     Btn::text_bg2(&edits.proposal_description[0])
-                        .tooltip(Text::new())
+                        .no_tooltip()
                         .build(ctx, &name, None)
                         .margin_below(10),
                 );
@@ -420,7 +420,7 @@ impl State<App> for Proposals {
                                 Transition::Replace(PopupMsg::new(
                                     ctx,
                                     "Can't load proposal",
-                                    vec![err],
+                                    vec![err.to_string()],
                                 ))
                             } else {
                                 app.primary.layer =
@@ -477,8 +477,8 @@ impl Screensaver {
         let bounds = app.primary.map.get_bounds();
         let line = loop {
             let goto = Pt2D::new(
-                rng.gen_range(0.0, bounds.max_x),
-                rng.gen_range(0.0, bounds.max_y),
+                rng.gen_range(0.0..bounds.max_x),
+                rng.gen_range(0.0..bounds.max_y),
             );
             if let Some(l) = Line::new(at, goto) {
                 break l;

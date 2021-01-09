@@ -1,7 +1,8 @@
 //! It's assumed that the importer is run with the current directory as the project repository; aka
 //! `./data/` and `./importer/config` must exist.
 
-use abstutil::{basename, MapName};
+use abstio::MapName;
+use abstutil::basename;
 
 use configuration::{load_configuration, ImporterConfiguration};
 use dependencies::are_dependencies_callable;
@@ -107,7 +108,7 @@ fn main() {
         vec![n]
     } else {
         println!("- Working on all {} maps", job.city);
-        abstutil::list_dir(format!("importer/config/{}", job.city))
+        abstio::list_dir(format!("importer/config/{}", job.city))
             .into_iter()
             .filter(|path| path.ends_with(".poly"))
             .map(basename)
@@ -141,7 +142,7 @@ fn main() {
             if job.city == "seattle" {
                 seattle::osm_to_raw(&name, &mut timer, &config);
             } else {
-                let raw = match abstutil::maybe_read_json::<generic::GenericCityImporter>(
+                let raw = match abstio::maybe_read_json::<generic::GenericCityImporter>(
                     format!("importer/config/{}/cfg.json", job.city),
                     &mut timer,
                 ) {
@@ -155,7 +156,11 @@ fn main() {
 
                 match job.city.as_ref() {
                     "berlin" => berlin::import_extra_data(&raw, &config, &mut timer),
-                    "leeds" => leeds::import_extra_data(&raw, &config, &mut timer),
+                    "leeds" => {
+                        if name == "huge" {
+                            leeds::import_extra_data(&raw, &config, &mut timer);
+                        }
+                    }
                     "london" => london::import_extra_data(&raw, &config, &mut timer),
                     _ => {}
                 }
@@ -217,8 +222,8 @@ fn main() {
 
     if job.city_overview {
         timer.start(format!("generate city overview for {}", job.city));
-        abstutil::write_binary(
-            abstutil::path(format!("system/{}/city.bin", job.city)),
+        abstio::write_binary(
+            abstio::path(format!("system/{}/city.bin", job.city)),
             &map_model::City::from_individual_maps(&job.city, &mut timer),
         );
         timer.stop(format!("generate city overview for {}", job.city));
